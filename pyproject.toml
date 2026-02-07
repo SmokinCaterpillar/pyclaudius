@@ -1,0 +1,126 @@
+[project]
+name = "claude_telegram_bot"
+version = "0.0.1"
+description = "Simple telegram bot that calls claude in subprocess, inspired by https://github.com/godagoo/claude-telegram-relay"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "requests",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "mypy"]
+
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy", "sqlalchemy.ext.mypy.plugin"]
+check_untyped_defs = true
+show_error_codes = true
+packages = ["cube_hubert"]
+
+[tool.ruff]
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".mypy_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "build",
+    "dist",
+    "venv",
+]
+
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "D",      # pydocstyle
+    "E",      # pycodestyle, error
+    "W",      # pycodestyle, warning
+    "I",      # isort
+    "PD",     # pandas-vet
+    "PGH003", # pygrep-hooks
+    "RUF",    # ruff-specific rules
+    "N",      # pep8-naming
+    "UP",     # pyupgrade
+    "ERA",    # eradicate
+    "FAST",   # fastapi
+    "S",      # bandit
+    "F",      # pyflakes
+    "PYI",    # pyflakes
+    "B",      # flake8-bugbear
+    "DTZ",    # flake8-datetimez
+    "PIE",    # flake8-pie
+    "Q",      # flake8-quotes
+    "SIM",    # flake8-simplify
+    "SLF",    # flake8-self
+    "YTT",    # flake8-yapf
+]
+
+
+# Allow autofix for all enabled rules (when `--fix`) is provided.
+fixable = [
+    "D",
+    "E",
+    "W",
+    "F",
+    "I",
+    "DTZ",
+    "PD",
+    "PGH",
+    "RUF",
+    "N",
+    "Q",
+    "S",
+    "SIM",
+    "SLF",
+    "UP",
+    "PIE",
+    "ERA",
+]
+# Avoid trying to fix flake8-bugbear and eradicate violations.
+unfixable = ["B", "ERA"]
+# Ignore a few rules that we consider too strict.
+ignore = [
+    "B008",   # Do not perform function call in argument defaults
+    "B904",   # Within an `except` clause, raise exceptions with `raise ... from err`
+    "D100",   # Missing docstring in public module
+    "D101",   # Missing docstring in public class
+    "D102",   # Missing docstring in public method
+    "D103",   # Missing docstring in public function
+    "D104",   # Missing docstring in public package
+    "D105",   # Missing docstring in magic method
+    "D106",   # Missing docstring in public nested class
+    "D107",   # Missing docstring in __init__
+    "D202",   # No blank lines allowed after function docstring
+    "D203",   # 1 blank line required before class docstring
+    "D205",   # 1 blank line required between summary line and description
+    "D213",   # Multi-line docstring summary should start at the second line
+    "D417",   # Missing argument descriptions in the docstring
+    "E501",   # Line too long
+    "ERA001", # Found commented-out code
+    "RUF006", # Store a reference to the return value of `asyncio.create_task`
+    "RUF012", # Mutable class attributes should be annotated with `typing.ClassVar`
+    "S101", # Use of `assert` detected
+]
+per-file-ignores = {}
+pydocstyle.convention = "numpy"
+
+
+[tool.ruff.lint.isort]
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "numeric",
+    "first-party",
+    "tests",
+    "local-folder",
+]
