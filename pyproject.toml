@@ -1,5 +1,5 @@
 [project]
-name = "claude_telegram_bot"
+name = "pyclaudius"
 version = "0.0.1"
 description = "Simple telegram bot that calls claude in subprocess, inspired by https://github.com/godagoo/claude-telegram-relay"
 readme = "README.md"
@@ -17,7 +17,7 @@ python_version = "3.12"
 plugins = ["pydantic.mypy", "sqlalchemy.ext.mypy.plugin"]
 check_untyped_defs = true
 show_error_codes = true
-packages = ["cube_hubert"]
+packages = ["cpyclaudius"]
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
