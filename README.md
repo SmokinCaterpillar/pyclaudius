@@ -32,7 +32,7 @@ Optional:
 
 ```bash
 CLAUDE_PATH=/usr/local/bin/claude   # default: claude
-RELAY_DIR=/opt/pyclaudius/data      # default: ~/.claude-relay
+RELAY_DIR=/opt/pyclaudius/data      # default: ~/.pyclaudius-realy
 ```
 
 ### Run locally
@@ -114,7 +114,7 @@ RestartSec=10
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/pyclaudius/.claude-relay
+ReadWritePaths=/home/pyclaudius/.pyclaudius-realy
 PrivateTmp=true
 
 [Install]
