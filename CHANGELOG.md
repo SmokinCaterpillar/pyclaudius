@@ -1,6 +1,7 @@
-# 0.2.1 - 2026-02-08
+# 0.2.1 - 2026-02-09
 
 * Bug fixes for missing permissions for files
+* Bug fixes for continuity with resume
 
 # 0.2.0 - 2026-02-08
 

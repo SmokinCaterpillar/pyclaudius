@@ -1,7 +1,6 @@
 import asyncio
 import logging
-
-from pyclaudius.session import extract_session_id
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -14,10 +13,20 @@ async def call_claude(
     resume: bool = False,
     add_dirs: list[str] | None = None,
 ) -> tuple[str, str | None]:
-    """Spawn the Claude CLI and return (response_text, new_session_id)."""
+    """Spawn the Claude CLI and return (response_text, session_id).
+
+    On the first call (no session_id), generates a UUID and passes
+    --session-id to start a new session. On subsequent calls, passes
+    --resume to continue the conversation.
+    """
     args = [claude_path, "-p", prompt, "--output-format", "text"]
+
     if resume and session_id:
         args.extend(["--resume", session_id])
+    elif not session_id:
+        session_id = str(uuid.uuid4())
+        args.extend(["--session-id", session_id])
+
     for directory in add_dirs or []:
         args.extend(["--add-dir", directory])
 
@@ -40,5 +49,4 @@ async def call_claude(
         error_msg = stderr_text.strip() or f"Claude exited with code {proc.returncode}"
         return f"Error: {error_msg}", None
 
-    new_session_id = extract_session_id(output=stderr_text)
-    return stdout_text.strip(), new_session_id
+    return stdout_text.strip(), session_id
