@@ -5,19 +5,30 @@ description = "Simple telegram bot that calls claude in subprocess, inspired by 
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "requests",
+    "python-telegram-bot==22.6",
+    "pydantic-settings==2.12.0",
 ]
 
+[project.scripts]
+pyclaudius = "pyclaudius.relay:main"
+
 [project.optional-dependencies]
-dev = ["pytest", "ruff", "mypy"]
+dev = ["pytest", "pytest-asyncio", "ruff", "mypy"]
 
 
 [tool.mypy]
 python_version = "3.12"
-plugins = ["pydantic.mypy", "sqlalchemy.ext.mypy.plugin"]
+plugins = ["pydantic.mypy"]
 check_untyped_defs = true
 show_error_codes = true
-packages = ["cpyclaudius"]
+packages = ["pyclaudius"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
@@ -110,7 +121,7 @@ ignore = [
     "RUF012", # Mutable class attributes should be annotated with `typing.ClassVar`
     "S101", # Use of `assert` detected
 ]
-per-file-ignores = {}
+per-file-ignores = {"tests/**" = ["S105"]}
 pydocstyle.convention = "numpy"
 
 

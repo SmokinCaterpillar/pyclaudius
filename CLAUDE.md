@@ -10,3 +10,4 @@ Please inspect the parent folder and everything underneath to see what we want t
 * Try to write testable functions, and have tests for every function
 * Pass arguments always as keyword arguments if possible
 * And use f-strings for logging
+* Use typing everywhere
