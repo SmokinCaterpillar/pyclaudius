@@ -13,7 +13,7 @@ def test_settings_defaults(monkeypatch):
     assert s.telegram_bot_token == "test-token"
     assert s.telegram_user_id == "12345"
     assert s.claude_path == "claude"
-    assert s.relay_dir == Path.home() / ".pyclaudius-realy"
+    assert s.relay_dir == Path.home() / ".pyclaudius-relay"
 
 
 def test_settings_derived_paths(tmp_path, monkeypatch):

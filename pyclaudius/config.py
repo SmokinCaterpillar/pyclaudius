@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     telegram_bot_token: str
     telegram_user_id: str
     claude_path: str = "claude"
-    relay_dir: Path = Path.home() / ".pyclaudius-realy"
+    relay_dir: Path = Path.home() / ".pyclaudius-relay"
 
     @property
     def temp_dir(self) -> Path:

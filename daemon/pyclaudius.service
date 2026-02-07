@@ -1,0 +1,62 @@
+[Unit]
+Description=pyclaudius Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# UPDATE THIS: Your username
+User=YOUR_USERNAME
+# UPDATE THIS: Path to project directory
+WorkingDirectory=/home/YOUR_USERNAME/pyclaudius
+# UPDATE THIS: Path to uv
+ExecStart=/home/YOUR_USERNAME/.local/bin/uv run pyclaudius
+Restart=on-failure
+RestartSec=10
+
+# Environment
+Environment=HOME=/home/YOUR_USERNAME
+Environment=PATH=/home/YOUR_USERNAME/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pyclaudius
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/YOUR_USERNAME/.pyclaudius-relay
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+
+# SETUP INSTRUCTIONS:
+#
+# 1. Replace all YOUR_USERNAME with your actual Linux username
+#
+# 2. Copy to systemd:
+#    sudo cp daemon/pyclaudius.service /etc/systemd/system/
+#
+# 3. Reload systemd:
+#    sudo systemctl daemon-reload
+#
+# 4. Enable (start on boot):
+#    sudo systemctl enable pyclaudius
+#
+# 5. Start:
+#    sudo systemctl start pyclaudius
+#
+# 6. Check status:
+#    sudo systemctl status pyclaudius
+#
+# 7. View logs:
+#    journalctl -u pyclaudius -f
+#
+# 8. Stop:
+#    sudo systemctl stop pyclaudius
+#
+# 9. Disable:
+#    sudo systemctl disable pyclaudius

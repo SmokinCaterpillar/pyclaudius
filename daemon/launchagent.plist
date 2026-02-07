@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Unique identifier for this service -->
+    <key>Label</key>
+    <string>com.pyclaudius.telegram-relay</string>
+
+    <!-- Command to run -->
+    <key>ProgramArguments</key>
+    <array>
+        <!-- UPDATE THIS: Path to uv -->
+        <string>/Users/YOUR_USERNAME/.local/bin/uv</string>
+        <string>run</string>
+        <string>pyclaudius</string>
+    </array>
+
+    <!-- Working directory -->
+    <key>WorkingDirectory</key>
+    <!-- UPDATE THIS: Path to your project directory -->
+    <string>/Users/YOUR_USERNAME/pyclaudius</string>
+
+    <!-- Environment variables -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <!-- UPDATE THIS: Include paths to uv, claude -->
+        <string>/Users/YOUR_USERNAME/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <!-- UPDATE THIS -->
+        <string>/Users/YOUR_USERNAME</string>
+    </dict>
+
+    <!-- Start when loaded -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Keep running (restart if it crashes) -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Log files -->
+    <key>StandardOutPath</key>
+    <!-- UPDATE THIS -->
+    <string>/Users/YOUR_USERNAME/Library/Logs/pyclaudius.log</string>
+
+    <key>StandardErrorPath</key>
+    <!-- UPDATE THIS -->
+    <string>/Users/YOUR_USERNAME/Library/Logs/pyclaudius.error.log</string>
+
+    <!-- Wait 10 seconds before restarting after crash -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>
+
+<!--
+SETUP INSTRUCTIONS:
+
+1. Replace all YOUR_USERNAME with your actual macOS username
+
+2. Copy to LaunchAgents:
+   cp daemon/launchagent.plist ~/Library/LaunchAgents/com.pyclaudius.telegram-relay.plist
+
+3. Make sure your .env file exists in the project directory
+
+4. Load the agent:
+   launchctl load ~/Library/LaunchAgents/com.pyclaudius.telegram-relay.plist
+
+5. Check if running:
+   launchctl list | grep pyclaudius
+
+6. View logs:
+   tail -f ~/Library/Logs/pyclaudius.log
+
+7. To stop:
+   launchctl unload ~/Library/LaunchAgents/com.pyclaudius.telegram-relay.plist
+
+8. To restart:
+   launchctl unload ~/Library/LaunchAgents/com.pyclaudius.telegram-relay.plist
+   launchctl load ~/Library/LaunchAgents/com.pyclaudius.telegram-relay.plist
+-->

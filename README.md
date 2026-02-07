@@ -21,19 +21,13 @@ uv sync --all-extras
 
 ### Configure
 
-Create a `.env` file in the project root:
+Copy the example env file and fill in your values:
 
 ```bash
-TELEGRAM_BOT_TOKEN=your-bot-token
-TELEGRAM_USER_ID=your-telegram-user-id
+cp .env.example .env
 ```
 
-Optional:
-
-```bash
-CLAUDE_PATH=/usr/local/bin/claude   # default: claude
-RELAY_DIR=/opt/pyclaudius/data      # default: ~/.pyclaudius-realy
-```
+See [`.env.example`](.env.example) for all available options.
 
 ### Run locally
 
@@ -83,52 +77,36 @@ claude auth login
 ### 5. Create the .env file
 
 ```bash
-cat > ~/pyclaudius/.env <<EOF
-TELEGRAM_BOT_TOKEN=your-bot-token
-TELEGRAM_USER_ID=your-telegram-user-id
-EOF
+cp ~/pyclaudius/.env.example ~/pyclaudius/.env
+# Edit with your values
+nano ~/pyclaudius/.env
 chmod 600 ~/pyclaudius/.env
 ```
 
-### 6. Set up systemd service
+### 6. Set up as a daemon
 
-Switch back to root and create the unit file:
+Ready-to-use service files are in the [`daemon/`](daemon/) directory.
 
-```bash
-sudo tee /etc/systemd/system/pyclaudius.service <<EOF
-[Unit]
-Description=pyclaudius Telegram bot
-After=network-online.target
-Wants=network-online.target
+**Linux (systemd):**
 
-[Service]
-Type=simple
-User=pyclaudius
-Group=pyclaudius
-WorkingDirectory=/home/pyclaudius/pyclaudius
-ExecStart=/home/pyclaudius/.local/bin/uv run pyclaudius
-Restart=on-failure
-RestartSec=10
-
-# Hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=/home/pyclaudius/.pyclaudius-realy
-PrivateTmp=true
-
-[Install]
-WantedBy=multi-user.target
-EOF
-```
-
-Enable and start:
+Edit `daemon/pyclaudius.service` and replace `YOUR_USERNAME` with `pyclaudius`, then:
 
 ```bash
+sudo cp ~/pyclaudius/daemon/pyclaudius.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable pyclaudius
 sudo systemctl start pyclaudius
 ```
+
+See the comments in [`daemon/pyclaudius.service`](daemon/pyclaudius.service) for full instructions.
+
+**macOS (launchd):**
+
+See [`daemon/launchagent.plist`](daemon/launchagent.plist).
+
+**Windows:**
+
+See [`daemon/README-WINDOWS.md`](daemon/README-WINDOWS.md).
 
 ### 7. Manage the service
 
@@ -140,18 +118,11 @@ sudo systemctl status pyclaudius
 sudo journalctl -u pyclaudius -f
 
 # Restart after code changes
-cd /home/pyclaudius/pyclaudius && sudo -u pyclaudius git pull
+sudo -u pyclaudius bash -c "cd ~/pyclaudius && git pull && uv sync"
 sudo systemctl restart pyclaudius
 
 # Stop
 sudo systemctl stop pyclaudius
-```
-
-### Updating
-
-```bash
-sudo -u pyclaudius bash -c "cd ~/pyclaudius && git pull && uv sync"
-sudo systemctl restart pyclaudius
 ```
 
 ## Development
