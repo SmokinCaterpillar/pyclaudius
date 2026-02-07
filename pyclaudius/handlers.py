@@ -126,6 +126,7 @@ async def handle_photo(
         claude_path=settings.claude_path,
         session_id=session.get("session_id"),
         resume=True,
+        add_dirs=[str(settings.uploads_dir)],
     )
 
     if new_session_id:
@@ -175,6 +176,7 @@ async def handle_document(
         claude_path=settings.claude_path,
         session_id=session.get("session_id"),
         resume=True,
+        add_dirs=[str(settings.uploads_dir)],
     )
 
     if new_session_id:

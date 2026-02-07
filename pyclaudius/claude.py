@@ -12,11 +12,14 @@ async def call_claude(
     claude_path: str = "claude",
     session_id: str | None = None,
     resume: bool = False,
+    add_dirs: list[str] | None = None,
 ) -> tuple[str, str | None]:
     """Spawn the Claude CLI and return (response_text, new_session_id)."""
     args = [claude_path, "-p", prompt, "--output-format", "text"]
     if resume and session_id:
         args.extend(["--resume", session_id])
+    for directory in add_dirs or []:
+        args.extend(["--add-dir", directory])
 
     logger.info(f"Calling Claude: {prompt[:50]}...")
 
