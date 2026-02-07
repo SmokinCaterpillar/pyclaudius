@@ -27,11 +27,11 @@ def check_authorized(user_id: int, *, allowed_user_id: str) -> bool:
     return str(user_id) == allowed_user_id
 
 
-def _get_memory_section(*, settings: Settings, memory: list[str]) -> str:
+def _get_memory_section(*, settings: Settings, memory: list[str]) -> str | None:
     """Build the memory section for the prompt if memory is enabled."""
     if settings.memory_enabled:
         return format_memory_section(memories=memory)
-    return ""
+    return None
 
 
 def _process_memory_response(
