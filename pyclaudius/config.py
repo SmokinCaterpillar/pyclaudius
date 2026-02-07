@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     telegram_user_id: str
     claude_path: str = "claude"
     relay_dir: Path = Path.home() / ".pyclaudius-relay"
+    memory_enabled: bool = False
+    max_memories: int = 100
 
     @property
     def temp_dir(self) -> Path:
@@ -26,6 +28,10 @@ class Settings(BaseSettings):
     @property
     def lock_file(self) -> Path:
         return self.relay_dir / "bot.lock"
+
+    @property
+    def memory_file(self) -> Path:
+        return self.relay_dir / "memory.json"
 
 
 def ensure_dirs(*, settings: Settings) -> None:

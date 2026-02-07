@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 
-def build_prompt(*, user_message: str) -> str:
+def build_prompt(*, user_message: str, memory_section: str = "") -> str:
     """Build the full prompt with system context for Claude."""
     now = datetime.now(tz=UTC).astimezone()
     time_str = now.strftime("%A, %B %d, %Y, %I:%M %p")
@@ -9,5 +9,6 @@ def build_prompt(*, user_message: str) -> str:
     return (
         "You are responding via Telegram. Keep responses concise.\n\n"
         f"Current time: {time_str}\n\n"
+        f"{memory_section}"
         f"User: {user_message}"
     )

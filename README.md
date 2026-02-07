@@ -35,6 +35,19 @@ See [`.env.example`](.env.example) for all available options.
 uv run pyclaudius
 ```
 
+## Memory
+
+pyclaudius supports persistent memory across sessions. When enabled, Claude can remember facts by including `[REMEMBER: ...]` tags in its responses (these tags are stripped before the message is sent to you).
+
+Enable it via environment variables:
+
+```bash
+MEMORY_ENABLED=true
+MAX_MEMORIES=100   # optional, default 100
+```
+
+Memories are stored in `~/.pyclaudius-relay/memory.json` and injected into every prompt. To clear memory, delete the file or edit it manually.
+
 ## Deploying on a server (Hetzner, etc.)
 
 ### 1. Provision the server

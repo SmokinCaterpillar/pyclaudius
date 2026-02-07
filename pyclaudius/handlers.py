@@ -8,6 +8,13 @@ from telegram.ext import ContextTypes
 
 from pyclaudius.claude import call_claude
 from pyclaudius.config import Settings
+from pyclaudius.memory import (
+    add_memories,
+    extract_remember_tags,
+    format_memory_section,
+    save_memory,
+    strip_remember_tags,
+)
 from pyclaudius.prompt import build_prompt
 from pyclaudius.response import split_response
 from pyclaudius.session import save_session
@@ -18,6 +25,35 @@ logger = logging.getLogger(__name__)
 def check_authorized(user_id: int, *, allowed_user_id: str) -> bool:
     """Check if a Telegram user ID is authorized."""
     return str(user_id) == allowed_user_id
+
+
+def _get_memory_section(*, settings: Settings, memory: list[str]) -> str:
+    """Build the memory section for the prompt if memory is enabled."""
+    if settings.memory_enabled:
+        return format_memory_section(memories=memory)
+    return ""
+
+
+def _process_memory_response(
+    *, response: str, settings: Settings, context: ContextTypes.DEFAULT_TYPE
+) -> str:
+    """Extract REMEMBER tags from response, update memory, return cleaned response."""
+    if not settings.memory_enabled:
+        return response
+
+    new_facts = extract_remember_tags(text=response)
+    if new_facts:
+        memory: list[str] = context.bot_data.get("memory", [])
+        updated = add_memories(
+            existing=memory,
+            new=new_facts,
+            max_memories=settings.max_memories,
+        )
+        context.bot_data["memory"] = updated
+        save_memory(memory_file=settings.memory_file, memories=updated)
+        logger.info(f"Stored {len(new_facts)} new memory fact(s), total: {len(updated)}")
+
+    return strip_remember_tags(text=response)
 
 
 async def handle_text(
@@ -37,7 +73,9 @@ async def handle_text(
     logger.info(f"Text from {update.effective_user.id}: {update.message.text[:50]}")
     await update.message.chat.send_action(action=ChatAction.TYPING)
 
-    prompt = build_prompt(user_message=update.message.text)
+    memory: list[str] = context.bot_data.get("memory", [])
+    memory_section = _get_memory_section(settings=settings, memory=memory)
+    prompt = build_prompt(user_message=update.message.text, memory_section=memory_section)
     response, new_session_id = await call_claude(
         prompt=prompt,
         claude_path=settings.claude_path,
@@ -52,6 +90,7 @@ async def handle_text(
         session_id=session.get("session_id"),
     )
 
+    response = _process_memory_response(response=response, settings=settings, context=context)
     for chunk in split_response(text=response):
         await update.message.reply_text(chunk)
 
@@ -79,7 +118,9 @@ async def handle_photo(
     await file.download_to_drive(custom_path=str(file_path))
 
     caption = update.message.caption or "Analyze this image."
-    prompt = build_prompt(user_message=f"[Image: {file_path}]\n\n{caption}")
+    memory: list[str] = context.bot_data.get("memory", [])
+    memory_section = _get_memory_section(settings=settings, memory=memory)
+    prompt = build_prompt(user_message=f"[Image: {file_path}]\n\n{caption}", memory_section=memory_section)
     response, new_session_id = await call_claude(
         prompt=prompt,
         claude_path=settings.claude_path,
@@ -94,6 +135,7 @@ async def handle_photo(
         session_id=session.get("session_id"),
     )
 
+    response = _process_memory_response(response=response, settings=settings, context=context)
     for chunk in split_response(text=response):
         await update.message.reply_text(chunk)
 
@@ -125,7 +167,9 @@ async def handle_document(
     await file.download_to_drive(custom_path=str(file_path))
 
     caption = update.message.caption or f"Analyze: {file_name}"
-    prompt = build_prompt(user_message=f"[File: {file_path}]\n\n{caption}")
+    memory: list[str] = context.bot_data.get("memory", [])
+    memory_section = _get_memory_section(settings=settings, memory=memory)
+    prompt = build_prompt(user_message=f"[File: {file_path}]\n\n{caption}", memory_section=memory_section)
     response, new_session_id = await call_claude(
         prompt=prompt,
         claude_path=settings.claude_path,
@@ -140,6 +184,7 @@ async def handle_document(
         session_id=session.get("session_id"),
     )
 
+    response = _process_memory_response(response=response, settings=settings, context=context)
     for chunk in split_response(text=response):
         await update.message.reply_text(chunk)
 

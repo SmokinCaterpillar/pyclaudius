@@ -22,7 +22,7 @@ def test_check_authorized_string_conversion():
     assert check_authorized(12345, allowed_user_id="12345") is True
 
 
-def _make_context(tmp_path):
+def _make_context(tmp_path, *, memory_enabled=False, max_memories=100):
     context = MagicMock()
     context.bot_data = {
         "settings": MagicMock(
@@ -30,8 +30,12 @@ def _make_context(tmp_path):
             claude_path="claude",
             session_file=tmp_path / "session.json",
             uploads_dir=tmp_path / "uploads",
+            memory_enabled=memory_enabled,
+            max_memories=max_memories,
+            memory_file=tmp_path / "memory.json",
         ),
         "session": {"session_id": None, "last_activity": ""},
+        "memory": [],
     }
     context.bot = AsyncMock()
     return context
@@ -137,3 +141,61 @@ async def test_handle_document_unauthorized(tmp_path):
     context = _make_context(tmp_path)
     await handle_document(update, context)
     update.message.reply_text.assert_called_once_with("This bot is private.")
+
+
+@pytest.mark.asyncio
+async def test_handle_text_memory_injected_into_prompt(tmp_path):
+    update = _make_update(text="hello")
+    context = _make_context(tmp_path, memory_enabled=True)
+    context.bot_data["memory"] = ["user likes coffee"]
+    with patch("pyclaudius.handlers.call_claude", new_callable=AsyncMock) as mock_claude:
+        mock_claude.return_value = ("Hi!", None)
+        await handle_text(update, context)
+        prompt_arg = mock_claude.call_args.kwargs["prompt"]
+        assert "## Memory" in prompt_arg
+        assert "- user likes coffee" in prompt_arg
+
+
+@pytest.mark.asyncio
+async def test_handle_text_memory_not_injected_when_disabled(tmp_path):
+    update = _make_update(text="hello")
+    context = _make_context(tmp_path, memory_enabled=False)
+    context.bot_data["memory"] = ["user likes coffee"]
+    with patch("pyclaudius.handlers.call_claude", new_callable=AsyncMock) as mock_claude:
+        mock_claude.return_value = ("Hi!", None)
+        await handle_text(update, context)
+        prompt_arg = mock_claude.call_args.kwargs["prompt"]
+        assert "## Memory" not in prompt_arg
+
+
+@pytest.mark.asyncio
+async def test_handle_text_remember_tags_extracted_and_stored(tmp_path):
+    update = _make_update(text="hello")
+    context = _make_context(tmp_path, memory_enabled=True)
+    with patch("pyclaudius.handlers.call_claude", new_callable=AsyncMock) as mock_claude:
+        mock_claude.return_value = ("Got it [REMEMBER: user likes tea]", None)
+        await handle_text(update, context)
+        assert "user likes tea" in context.bot_data["memory"]
+
+
+@pytest.mark.asyncio
+async def test_handle_text_remember_tags_stripped_from_response(tmp_path):
+    update = _make_update(text="hello")
+    context = _make_context(tmp_path, memory_enabled=True)
+    with patch("pyclaudius.handlers.call_claude", new_callable=AsyncMock) as mock_claude:
+        mock_claude.return_value = ("Got it [REMEMBER: user likes tea] bye", None)
+        await handle_text(update, context)
+        update.message.reply_text.assert_called_once_with("Got it  bye")
+
+
+@pytest.mark.asyncio
+async def test_handle_text_remember_tags_not_processed_when_disabled(tmp_path):
+    update = _make_update(text="hello")
+    context = _make_context(tmp_path, memory_enabled=False)
+    with patch("pyclaudius.handlers.call_claude", new_callable=AsyncMock) as mock_claude:
+        mock_claude.return_value = ("Got it [REMEMBER: user likes tea]", None)
+        await handle_text(update, context)
+        assert context.bot_data["memory"] == []
+        update.message.reply_text.assert_called_once_with(
+            "Got it [REMEMBER: user likes tea]"
+        )
