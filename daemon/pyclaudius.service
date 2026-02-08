@@ -10,7 +10,7 @@ User=YOUR_USERNAME
 # UPDATE THIS: Path to project directory
 WorkingDirectory=/home/YOUR_USERNAME/pyclaudius
 # UPDATE THIS: Path to uv
-ExecStart=/home/YOUR_USERNAME/.local/bin/uv run pyclaudius
+ExecStart=/home/YOUR_USERNAME/pyclaudius/.venv/bin/pyclaudius
 Restart=on-failure
 RestartSec=10
 
