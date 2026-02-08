@@ -1,3 +1,7 @@
+# 0.3.1 - 2026-02-09
+
+* New config of tools
+
 # 0.3.0 - 2026-02-09
 
 * New forgetting mechanism

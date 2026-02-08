@@ -45,6 +45,21 @@ def test_ensure_dirs_creates_directories(tmp_path, monkeypatch):
     assert s.uploads_dir.is_dir()
 
 
+def test_settings_allowed_tools_default(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    s = Settings()
+    assert s.allowed_tools == []
+
+
+def test_settings_allowed_tools_from_env(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    monkeypatch.setenv("ALLOWED_TOOLS", '["WebSearch","WebFetch"]')
+    s = Settings()
+    assert s.allowed_tools == ["WebSearch", "WebFetch"]
+
+
 def test_ensure_dirs_idempotent(tmp_path, monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
     monkeypatch.setenv("TELEGRAM_USER_ID", "1")

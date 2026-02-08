@@ -102,3 +102,30 @@ async def test_call_claude_custom_path(mock_process):
         await call_claude(prompt="hi", claude_path="/usr/local/bin/claude")
         args = mock_exec.call_args[0]
         assert args[0] == "/usr/local/bin/claude"
+
+
+@pytest.mark.asyncio
+async def test_call_claude_allowed_tools(mock_process):
+    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
+        await call_claude(prompt="hi", allowed_tools=["WebSearch"])
+        args = mock_exec.call_args[0]
+        idx = args.index("--allowedTools")
+        assert args[idx + 1] == "WebSearch"
+
+
+@pytest.mark.asyncio
+async def test_call_claude_allowed_tools_multiple(mock_process):
+    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
+        await call_claude(prompt="hi", allowed_tools=["WebSearch", "WebFetch"])
+        args = mock_exec.call_args[0]
+        assert args.count("--allowedTools") == 1
+        idx = args.index("--allowedTools")
+        assert args[idx + 1] == "WebSearch,WebFetch"
+
+
+@pytest.mark.asyncio
+async def test_call_claude_allowed_tools_empty(mock_process):
+    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
+        await call_claude(prompt="hi", allowed_tools=[])
+        args = mock_exec.call_args[0]
+        assert "--allowedTools" not in args

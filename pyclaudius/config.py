@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     relay_dir: Path = Path.home() / ".pyclaudius-relay"
     memory_enabled: bool = False
     max_memories: int = 100
+    allowed_tools: list[str] = []
 
     @property
     def temp_dir(self) -> Path:

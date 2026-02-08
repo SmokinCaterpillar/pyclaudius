@@ -24,7 +24,7 @@ def test_check_authorized_string_conversion():
     assert check_authorized(12345, allowed_user_id="12345") is True
 
 
-def _make_context(tmp_path, *, memory_enabled=False, max_memories=100):
+def _make_context(tmp_path, *, memory_enabled=False, max_memories=100, allowed_tools=None):
     context = MagicMock()
     context.bot_data = {
         "settings": MagicMock(
@@ -35,6 +35,7 @@ def _make_context(tmp_path, *, memory_enabled=False, max_memories=100):
             memory_enabled=memory_enabled,
             max_memories=max_memories,
             memory_file=tmp_path / "memory.json",
+            allowed_tools=allowed_tools or [],
         ),
         "session": {"session_id": None, "last_activity": ""},
         "memory": [],

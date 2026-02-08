@@ -94,6 +94,7 @@ async def handle_text(
         claude_path=settings.claude_path,
         session_id=session.get("session_id"),
         resume=True,
+        allowed_tools=settings.allowed_tools,
     )
 
     if new_session_id:
@@ -140,6 +141,7 @@ async def handle_photo(
         session_id=session.get("session_id"),
         resume=True,
         add_dirs=[str(settings.uploads_dir)],
+        allowed_tools=settings.allowed_tools,
     )
 
     if new_session_id:
@@ -190,6 +192,7 @@ async def handle_document(
         session_id=session.get("session_id"),
         resume=True,
         add_dirs=[str(settings.uploads_dir)],
+        allowed_tools=settings.allowed_tools,
     )
 
     if new_session_id:

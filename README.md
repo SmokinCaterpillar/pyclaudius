@@ -37,7 +37,15 @@ uv run pyclaudius
 
 ## Memory
 
-pyclaudius supports persistent memory across sessions. When enabled, Claude can remember facts by including `[REMEMBER: ...]` tags in its responses (these tags are stripped before the message is sent to you).
+pyclaudius supports persistent memory across sessions. When enabled, Claude can remember and forget facts automatically by including tags in its responses (tags are stripped before the message is sent to you):
+
+- `[REMEMBER: user likes coffee]` — stores a fact
+- `[FORGET: coffee]` — removes matching facts
+
+You can also manage memory manually with Telegram commands:
+
+- `/remember` — list all stored facts
+- `/forget <keyword>` — remove facts matching a keyword
 
 Enable it via environment variables:
 
@@ -47,6 +55,14 @@ MAX_MEMORIES=100   # optional, default 100
 ```
 
 Memories are stored in `~/.pyclaudius-relay/memory.json` and injected into every prompt. To clear memory, delete the file or edit it manually.
+
+## Allowed Tools
+
+By default, Claude CLI in print mode (`-p`) does not have permission to use tools like `WebSearch` or `WebFetch`. To pre-approve tools, set the `ALLOWED_TOOLS` environment variable:
+
+```bash
+ALLOWED_TOOLS='["WebSearch","WebFetch"]'
+```
 
 ## Deploying on a server (Hetzner, etc.)
 
