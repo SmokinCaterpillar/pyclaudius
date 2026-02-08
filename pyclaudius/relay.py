@@ -14,6 +14,7 @@ from pyclaudius.handlers import (
 from pyclaudius.lockfile import acquire_lock, release_lock, setup_signal_handlers
 from pyclaudius.memory import load_memory
 from pyclaudius.session import load_session
+from pyclaudius.version import __version__
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:
     settings = Settings()
-    logger.info(f"Started with {str(settings)}")
+    logger.info(f"Started pyclaudius {__version__} with {str(settings)}")
     ensure_dirs(settings=settings)
 
     if not acquire_lock(lock_file=settings.lock_file):
