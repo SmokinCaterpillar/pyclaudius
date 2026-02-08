@@ -54,7 +54,8 @@ def remove_memories(*, existing: list[str], keywords: list[str]) -> list[str]:
     """Remove memories that contain any of the keywords (case-insensitive)."""
     lower_keywords = [kw.lower() for kw in keywords]
     return [
-        fact for fact in existing
+        fact
+        for fact in existing
         if not any(kw in fact.lower() for kw in lower_keywords)
     ]
 

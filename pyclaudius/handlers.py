@@ -52,8 +52,13 @@ def _process_memory_response(
         changed = True
         logger.info(f"Forgot memories matching: {forget_keywords}")
 
+    overflow_warning = ""
     new_facts = extract_remember_tags(text=response)
     if new_facts:
+        memory_before = list(memory)
+        unique_new = [
+            f for f in new_facts if f.lower() not in {m.lower() for m in memory}
+        ]
         memory = add_memories(
             existing=memory,
             new=new_facts,
@@ -61,17 +66,23 @@ def _process_memory_response(
         )
         changed = True
         logger.info(f"Stored {len(new_facts)} new memory fact(s), total: {len(memory)}")
+        overflow_count = len(memory_before) + len(unique_new) - settings.max_memories
+        if overflow_count > 0:
+            dropped = memory_before[:overflow_count]
+            dropped_list = ", ".join(f'"{d}"' for d in dropped)
+            overflow_warning = (
+                f"\n\n⚠ Memory full ({settings.max_memories}). "
+                f"Oldest fact(s) forgotten: {dropped_list}"
+            )
 
     if changed:
         context.bot_data["memory"] = memory
         save_memory(memory_file=settings.memory_file, memories=memory)
 
-    return strip_remember_tags(text=response)
+    return strip_remember_tags(text=response) + overflow_warning
 
 
-async def handle_text(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming text messages."""
     settings: Settings = context.bot_data["settings"]
     session: dict = context.bot_data["session"]
@@ -79,7 +90,9 @@ async def handle_text(
     if not update.effective_user or not update.message or not update.message.text:
         return
 
-    if not check_authorized(update.effective_user.id, allowed_user_id=settings.telegram_user_id):
+    if not check_authorized(
+        update.effective_user.id, allowed_user_id=settings.telegram_user_id
+    ):
         await update.message.reply_text("This bot is private.")
         return
 
@@ -88,7 +101,9 @@ async def handle_text(
 
     memory: list[str] = context.bot_data.get("memory", [])
     memory_section = _get_memory_section(settings=settings, memory=memory)
-    prompt = build_prompt(user_message=update.message.text, memory_section=memory_section)
+    prompt = build_prompt(
+        user_message=update.message.text, memory_section=memory_section
+    )
     response, new_session_id = await call_claude(
         prompt=prompt,
         claude_path=settings.claude_path,
@@ -105,14 +120,14 @@ async def handle_text(
         session_id=session.get("session_id"),
     )
 
-    response = _process_memory_response(response=response, settings=settings, context=context)
+    response = _process_memory_response(
+        response=response, settings=settings, context=context
+    )
     for chunk in split_response(text=response):
         await update.message.reply_text(chunk)
 
 
-async def handle_photo(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming photos."""
     settings: Settings = context.bot_data["settings"]
     session: dict = context.bot_data["session"]
@@ -120,7 +135,9 @@ async def handle_photo(
     if not update.effective_user or not update.message or not update.message.photo:
         return
 
-    if not check_authorized(update.effective_user.id, allowed_user_id=settings.telegram_user_id):
+    if not check_authorized(
+        update.effective_user.id, allowed_user_id=settings.telegram_user_id
+    ):
         await update.message.reply_text("This bot is private.")
         return
 
@@ -135,7 +152,9 @@ async def handle_photo(
     caption = update.message.caption or "Analyze this image."
     memory: list[str] = context.bot_data.get("memory", [])
     memory_section = _get_memory_section(settings=settings, memory=memory)
-    prompt = build_prompt(user_message=f"[Image: {file_path}]\n\n{caption}", memory_section=memory_section)
+    prompt = build_prompt(
+        user_message=f"[Image: {file_path}]\n\n{caption}", memory_section=memory_section
+    )
     response, new_session_id = await call_claude(
         prompt=prompt,
         claude_path=settings.claude_path,
@@ -153,7 +172,9 @@ async def handle_photo(
         session_id=session.get("session_id"),
     )
 
-    response = _process_memory_response(response=response, settings=settings, context=context)
+    response = _process_memory_response(
+        response=response, settings=settings, context=context
+    )
     for chunk in split_response(text=response):
         await update.message.reply_text(chunk)
 
@@ -161,9 +182,7 @@ async def handle_photo(
         os.unlink(file_path)
 
 
-async def handle_document(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming documents."""
     settings: Settings = context.bot_data["settings"]
     session: dict = context.bot_data["session"]
@@ -171,7 +190,9 @@ async def handle_document(
     if not update.effective_user or not update.message or not update.message.document:
         return
 
-    if not check_authorized(update.effective_user.id, allowed_user_id=settings.telegram_user_id):
+    if not check_authorized(
+        update.effective_user.id, allowed_user_id=settings.telegram_user_id
+    ):
         await update.message.reply_text("This bot is private.")
         return
 
@@ -187,7 +208,9 @@ async def handle_document(
     caption = update.message.caption or f"Analyze: {file_name}"
     memory: list[str] = context.bot_data.get("memory", [])
     memory_section = _get_memory_section(settings=settings, memory=memory)
-    prompt = build_prompt(user_message=f"[File: {file_path}]\n\n{caption}", memory_section=memory_section)
+    prompt = build_prompt(
+        user_message=f"[File: {file_path}]\n\n{caption}", memory_section=memory_section
+    )
     response, new_session_id = await call_claude(
         prompt=prompt,
         claude_path=settings.claude_path,
@@ -205,7 +228,9 @@ async def handle_document(
         session_id=session.get("session_id"),
     )
 
-    response = _process_memory_response(response=response, settings=settings, context=context)
+    response = _process_memory_response(
+        response=response, settings=settings, context=context
+    )
     for chunk in split_response(text=response):
         await update.message.reply_text(chunk)
 
@@ -222,7 +247,9 @@ async def handle_remember_command(
     if not update.effective_user or not update.message or not update.message.text:
         return
 
-    if not check_authorized(update.effective_user.id, allowed_user_id=settings.telegram_user_id):
+    if not check_authorized(
+        update.effective_user.id, allowed_user_id=settings.telegram_user_id
+    ):
         await update.message.reply_text("This bot is private.")
         return
 
@@ -235,16 +262,22 @@ async def handle_remember_command(
         await update.message.reply_text("Usage: /remember <fact>")
         return
 
-    memory: list[str] = context.bot_data.get("memory", [])
+    memory_before: list[str] = context.bot_data.get("memory", [])
+    is_new = fact.lower() not in {f.lower() for f in memory_before}
     memory = add_memories(
-        existing=memory,
+        existing=memory_before,
         new=[fact],
         max_memories=settings.max_memories,
     )
     context.bot_data["memory"] = memory
     save_memory(memory_file=settings.memory_file, memories=memory)
     logger.info(f"Manually stored memory: {fact}")
-    await update.message.reply_text(f'Remembered: "{fact}"')
+
+    reply = f'Remembered: "{fact}"'
+    if is_new and len(memory_before) >= settings.max_memories:
+        dropped = memory_before[0]
+        reply += f'\n\nWarning: memory full ({settings.max_memories}). Oldest fact forgotten: "{dropped}"'
+    await update.message.reply_text(reply)
 
 
 async def handle_forget_command(
@@ -256,7 +289,9 @@ async def handle_forget_command(
     if not update.effective_user or not update.message or not update.message.text:
         return
 
-    if not check_authorized(update.effective_user.id, allowed_user_id=settings.telegram_user_id):
+    if not check_authorized(
+        update.effective_user.id, allowed_user_id=settings.telegram_user_id
+    ):
         await update.message.reply_text("This bot is private.")
         return
 
@@ -266,10 +301,26 @@ async def handle_forget_command(
 
     keyword = update.message.text.removeprefix("/forget").strip()
     if not keyword:
-        await update.message.reply_text("Usage: /forget <keyword>")
+        await update.message.reply_text("Usage: /forget <keyword or number>")
         return
 
     memory: list[str] = context.bot_data.get("memory", [])
+
+    # Index-based removal: /forget 3
+    if keyword.isdigit():
+        index = int(keyword)
+        if index < 1 or index > len(memory):
+            await update.message.reply_text(
+                f"Invalid index {index}. Use /listmemory to see valid numbers (1\u2013{len(memory)})."
+            )
+            return
+        removed_fact = memory.pop(index - 1)
+        context.bot_data["memory"] = memory
+        save_memory(memory_file=settings.memory_file, memories=memory)
+        await update.message.reply_text(f'Removed memory {index}: "{removed_fact}"')
+        return
+
+    # Keyword-based removal
     updated = remove_memories(existing=memory, keywords=[keyword])
     removed_count = len(memory) - len(updated)
 
@@ -293,7 +344,9 @@ async def handle_listmemory_command(
     if not update.effective_user or not update.message:
         return
 
-    if not check_authorized(update.effective_user.id, allowed_user_id=settings.telegram_user_id):
+    if not check_authorized(
+        update.effective_user.id, allowed_user_id=settings.telegram_user_id
+    ):
         await update.message.reply_text("This bot is private.")
         return
 
@@ -319,7 +372,9 @@ async def handle_help_command(
     if not update.effective_user or not update.message:
         return
 
-    if not check_authorized(update.effective_user.id, allowed_user_id=settings.telegram_user_id):
+    if not check_authorized(
+        update.effective_user.id, allowed_user_id=settings.telegram_user_id
+    ):
         await update.message.reply_text("This bot is private.")
         return
 
@@ -328,7 +383,7 @@ async def handle_help_command(
         "/help — show available commands\n"
         "/remember <fact> — store a memory fact\n"
         "/listmemory — list all stored memories\n"
-        "/forget <keyword> — remove memories matching keyword\n\n"
+        "/forget <keyword or number> — remove memories matching keyword or by index\n\n"
         "Text, photo, and document messages are forwarded to Claude."
     )
     await update.message.reply_text(help_text)

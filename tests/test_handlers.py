@@ -8,8 +8,8 @@ from pyclaudius.handlers import (
     handle_forget_command,
     handle_help_command,
     handle_listmemory_command,
-    handle_remember_command,
     handle_photo,
+    handle_remember_command,
     handle_text,
 )
 
@@ -26,7 +26,9 @@ def test_check_authorized_string_conversion():
     assert check_authorized(12345, allowed_user_id="12345") is True
 
 
-def _make_context(tmp_path, *, memory_enabled=False, max_memories=100, allowed_tools=None):
+def _make_context(
+    tmp_path, *, memory_enabled=False, max_memories=100, allowed_tools=None
+):
     context = MagicMock()
     context.bot_data = {
         "settings": MagicMock(
@@ -70,7 +72,9 @@ async def test_handle_text_unauthorized(tmp_path):
 async def test_handle_text_success(tmp_path):
     update = _make_update(text="hello claude")
     context = _make_context(tmp_path)
-    with patch("pyclaudius.handlers.call_claude", new_callable=AsyncMock) as mock_claude:
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
         mock_claude.return_value = ("Hi there!", "session-abc")
         await handle_text(update, context)
         mock_claude.assert_called_once()
@@ -82,7 +86,9 @@ async def test_handle_text_success(tmp_path):
 async def test_handle_text_no_session_update(tmp_path):
     update = _make_update(text="test")
     context = _make_context(tmp_path)
-    with patch("pyclaudius.handlers.call_claude", new_callable=AsyncMock) as mock_claude:
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
         mock_claude.return_value = ("response", None)
         await handle_text(update, context)
         assert context.bot_data["session"]["session_id"] is None
@@ -102,7 +108,9 @@ async def test_handle_photo_success(tmp_path):
     file_mock = AsyncMock()
     context.bot.get_file.return_value = file_mock
 
-    with patch("pyclaudius.handlers.call_claude", new_callable=AsyncMock) as mock_claude:
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
         mock_claude.return_value = ("Nice photo!", None)
         await handle_photo(update, context)
         mock_claude.assert_called_once()
@@ -124,7 +132,9 @@ async def test_handle_document_success(tmp_path):
     file_mock = AsyncMock()
     context.bot.get_file.return_value = file_mock
 
-    with patch("pyclaudius.handlers.call_claude", new_callable=AsyncMock) as mock_claude:
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
         mock_claude.return_value = ("Document analyzed!", None)
         await handle_document(update, context)
         mock_claude.assert_called_once()
@@ -154,7 +164,9 @@ async def test_handle_text_memory_injected_into_prompt(tmp_path):
     update = _make_update(text="hello")
     context = _make_context(tmp_path, memory_enabled=True)
     context.bot_data["memory"] = ["user likes coffee"]
-    with patch("pyclaudius.handlers.call_claude", new_callable=AsyncMock) as mock_claude:
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
         mock_claude.return_value = ("Hi!", None)
         await handle_text(update, context)
         prompt_arg = mock_claude.call_args.kwargs["prompt"]
@@ -167,7 +179,9 @@ async def test_handle_text_memory_not_injected_when_disabled(tmp_path):
     update = _make_update(text="hello")
     context = _make_context(tmp_path, memory_enabled=False)
     context.bot_data["memory"] = ["user likes coffee"]
-    with patch("pyclaudius.handlers.call_claude", new_callable=AsyncMock) as mock_claude:
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
         mock_claude.return_value = ("Hi!", None)
         await handle_text(update, context)
         prompt_arg = mock_claude.call_args.kwargs["prompt"]
@@ -178,7 +192,9 @@ async def test_handle_text_memory_not_injected_when_disabled(tmp_path):
 async def test_handle_text_remember_tags_extracted_and_stored(tmp_path):
     update = _make_update(text="hello")
     context = _make_context(tmp_path, memory_enabled=True)
-    with patch("pyclaudius.handlers.call_claude", new_callable=AsyncMock) as mock_claude:
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
         mock_claude.return_value = ("Got it [REMEMBER: user likes tea]", None)
         await handle_text(update, context)
         assert "user likes tea" in context.bot_data["memory"]
@@ -188,7 +204,9 @@ async def test_handle_text_remember_tags_extracted_and_stored(tmp_path):
 async def test_handle_text_remember_tags_stripped_from_response(tmp_path):
     update = _make_update(text="hello")
     context = _make_context(tmp_path, memory_enabled=True)
-    with patch("pyclaudius.handlers.call_claude", new_callable=AsyncMock) as mock_claude:
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
         mock_claude.return_value = ("Got it [REMEMBER: user likes tea] bye", None)
         await handle_text(update, context)
         update.message.reply_text.assert_called_once_with("Got it  bye")
@@ -198,7 +216,9 @@ async def test_handle_text_remember_tags_stripped_from_response(tmp_path):
 async def test_handle_text_remember_tags_not_processed_when_disabled(tmp_path):
     update = _make_update(text="hello")
     context = _make_context(tmp_path, memory_enabled=False)
-    with patch("pyclaudius.handlers.call_claude", new_callable=AsyncMock) as mock_claude:
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
         mock_claude.return_value = ("Got it [REMEMBER: user likes tea]", None)
         await handle_text(update, context)
         assert context.bot_data["memory"] == []
@@ -212,7 +232,9 @@ async def test_handle_text_forget_tags_remove_memories(tmp_path):
     update = _make_update(text="I no longer like coffee")
     context = _make_context(tmp_path, memory_enabled=True)
     context.bot_data["memory"] = ["user likes coffee", "user likes tea"]
-    with patch("pyclaudius.handlers.call_claude", new_callable=AsyncMock) as mock_claude:
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
         mock_claude.return_value = ("OK [FORGET: coffee] noted", None)
         await handle_text(update, context)
         assert "user likes coffee" not in context.bot_data["memory"]
@@ -224,7 +246,9 @@ async def test_handle_text_forget_tags_stripped_from_response(tmp_path):
     update = _make_update(text="forget coffee")
     context = _make_context(tmp_path, memory_enabled=True)
     context.bot_data["memory"] = ["user likes coffee"]
-    with patch("pyclaudius.handlers.call_claude", new_callable=AsyncMock) as mock_claude:
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
         mock_claude.return_value = ("Done [FORGET: coffee] bye", None)
         await handle_text(update, context)
         update.message.reply_text.assert_called_once_with("Done  bye")
@@ -348,4 +372,112 @@ async def test_handle_forget_command_no_keyword(tmp_path):
     update = _make_update(text="/forget")
     context = _make_context(tmp_path, memory_enabled=True)
     await handle_forget_command(update, context)
-    update.message.reply_text.assert_called_once_with("Usage: /forget <keyword>")
+    update.message.reply_text.assert_called_once_with(
+        "Usage: /forget <keyword or number>"
+    )
+
+
+@pytest.mark.asyncio
+async def test_handle_forget_command_by_index(tmp_path):
+    update = _make_update(text="/forget 2")
+    context = _make_context(tmp_path, memory_enabled=True)
+    context.bot_data["memory"] = ["likes coffee", "likes tea", "likes water"]
+    await handle_forget_command(update, context)
+    assert context.bot_data["memory"] == ["likes coffee", "likes water"]
+    reply = update.message.reply_text.call_args[0][0]
+    assert reply == 'Removed memory 2: "likes tea"'
+
+
+@pytest.mark.asyncio
+async def test_handle_forget_command_index_out_of_range(tmp_path):
+    update = _make_update(text="/forget 5")
+    context = _make_context(tmp_path, memory_enabled=True)
+    context.bot_data["memory"] = ["likes coffee", "likes tea"]
+    await handle_forget_command(update, context)
+    reply = update.message.reply_text.call_args[0][0]
+    assert "Invalid index 5" in reply
+    assert context.bot_data["memory"] == ["likes coffee", "likes tea"]
+
+
+@pytest.mark.asyncio
+async def test_handle_forget_command_index_zero(tmp_path):
+    update = _make_update(text="/forget 0")
+    context = _make_context(tmp_path, memory_enabled=True)
+    context.bot_data["memory"] = ["likes coffee"]
+    await handle_forget_command(update, context)
+    reply = update.message.reply_text.call_args[0][0]
+    assert "Invalid index 0" in reply
+    assert context.bot_data["memory"] == ["likes coffee"]
+
+
+@pytest.mark.asyncio
+async def test_handle_remember_command_warns_on_overflow(tmp_path):
+    update = _make_update(text="/remember likes water")
+    context = _make_context(tmp_path, memory_enabled=True, max_memories=2)
+    context.bot_data["memory"] = ["likes coffee", "likes tea"]
+    await handle_remember_command(update, context)
+    reply = update.message.reply_text.call_args[0][0]
+    assert 'Remembered: "likes water"' in reply
+    assert "Warning: memory full (2)" in reply
+    assert 'Oldest fact forgotten: "likes coffee"' in reply
+
+
+@pytest.mark.asyncio
+async def test_handle_remember_command_no_warning_under_max(tmp_path):
+    update = _make_update(text="/remember likes water")
+    context = _make_context(tmp_path, memory_enabled=True, max_memories=10)
+    context.bot_data["memory"] = ["likes coffee"]
+    await handle_remember_command(update, context)
+    reply = update.message.reply_text.call_args[0][0]
+    assert 'Remembered: "likes water"' in reply
+    assert "Warning" not in reply
+
+
+@pytest.mark.asyncio
+async def test_process_memory_response_warns_on_overflow(tmp_path):
+    update = _make_update(text="hello")
+    context = _make_context(tmp_path, memory_enabled=True, max_memories=2)
+    context.bot_data["memory"] = ["likes coffee", "likes tea"]
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
+        mock_claude.return_value = ("Got it [REMEMBER: likes water]", None)
+        await handle_text(update, context)
+        reply = update.message.reply_text.call_args[0][0]
+        assert "Memory full (2)" in reply
+        assert 'Oldest fact(s) forgotten: "likes coffee"' in reply
+
+
+@pytest.mark.asyncio
+async def test_process_memory_response_no_warning_under_max(tmp_path):
+    update = _make_update(text="hello")
+    context = _make_context(tmp_path, memory_enabled=True, max_memories=10)
+    context.bot_data["memory"] = ["likes coffee"]
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
+        mock_claude.return_value = ("Got it [REMEMBER: likes water]", None)
+        await handle_text(update, context)
+        reply = update.message.reply_text.call_args[0][0]
+        assert "Got it" in reply
+        assert "Memory full" not in reply
+
+
+@pytest.mark.asyncio
+async def test_process_memory_response_warns_multiple_evictions(tmp_path):
+    update = _make_update(text="hello")
+    context = _make_context(tmp_path, memory_enabled=True, max_memories=2)
+    context.bot_data["memory"] = ["likes coffee", "likes tea"]
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
+        mock_claude.return_value = (
+            "OK [REMEMBER: likes water] [REMEMBER: likes juice]",
+            None,
+        )
+        await handle_text(update, context)
+        reply = update.message.reply_text.call_args[0][0]
+        assert "Memory full (2)" in reply
+        assert '"likes coffee"' in reply
+        assert '"likes tea"' in reply
+        assert context.bot_data["memory"] == ["likes water", "likes juice"]

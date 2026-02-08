@@ -9,8 +9,8 @@ from pyclaudius.handlers import (
     handle_forget_command,
     handle_help_command,
     handle_listmemory_command,
-    handle_remember_command,
     handle_photo,
+    handle_remember_command,
     handle_text,
 )
 from pyclaudius.lockfile import acquire_lock, release_lock, setup_signal_handlers
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:
     settings = Settings()
-    logger.info(f"Started pyclaudius {__version__} with {str(settings)}")
+    logger.info(f"Started pyclaudius {__version__} with {settings!s}")
     ensure_dirs(settings=settings)
 
     if not acquire_lock(lock_file=settings.lock_file):

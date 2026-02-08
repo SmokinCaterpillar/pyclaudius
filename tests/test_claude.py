@@ -15,7 +15,9 @@ def mock_process():
 
 @pytest.mark.asyncio
 async def test_call_claude_success(mock_process):
-    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process
+    ) as mock_exec:
         result, session_id = await call_claude(prompt="hello")
         assert result == "Hello from Claude"
         assert session_id is not None
@@ -27,7 +29,9 @@ async def test_call_claude_success(mock_process):
 
 @pytest.mark.asyncio
 async def test_call_claude_with_resume(mock_process):
-    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process
+    ) as mock_exec:
         await call_claude(
             prompt="hi",
             resume=True,
@@ -40,7 +44,9 @@ async def test_call_claude_with_resume(mock_process):
 
 @pytest.mark.asyncio
 async def test_call_claude_resume_without_session_id(mock_process):
-    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process
+    ) as mock_exec:
         _, session_id = await call_claude(prompt="hi", resume=True, session_id=None)
         args = mock_exec.call_args[0]
         assert "--resume" not in args
@@ -75,7 +81,9 @@ async def test_call_claude_generates_session_id():
     proc = AsyncMock()
     proc.returncode = 0
     proc.communicate.return_value = (b"Response text", b"")
-    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=proc) as mock_exec:
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec", return_value=proc
+    ) as mock_exec:
         result, session_id = await call_claude(prompt="test")
         assert result == "Response text"
         assert session_id is not None
@@ -98,7 +106,9 @@ async def test_call_claude_file_not_found():
 
 @pytest.mark.asyncio
 async def test_call_claude_custom_path(mock_process):
-    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process
+    ) as mock_exec:
         await call_claude(prompt="hi", claude_path="/usr/local/bin/claude")
         args = mock_exec.call_args[0]
         assert args[0] == "/usr/local/bin/claude"
@@ -106,7 +116,9 @@ async def test_call_claude_custom_path(mock_process):
 
 @pytest.mark.asyncio
 async def test_call_claude_allowed_tools(mock_process):
-    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process
+    ) as mock_exec:
         await call_claude(prompt="hi", allowed_tools=["WebSearch"])
         args = mock_exec.call_args[0]
         idx = args.index("--allowedTools")
@@ -115,7 +127,9 @@ async def test_call_claude_allowed_tools(mock_process):
 
 @pytest.mark.asyncio
 async def test_call_claude_allowed_tools_multiple(mock_process):
-    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process
+    ) as mock_exec:
         await call_claude(prompt="hi", allowed_tools=["WebSearch", "WebFetch"])
         args = mock_exec.call_args[0]
         assert args.count("--allowedTools") == 1
@@ -125,7 +139,9 @@ async def test_call_claude_allowed_tools_multiple(mock_process):
 
 @pytest.mark.asyncio
 async def test_call_claude_allowed_tools_empty(mock_process):
-    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process
+    ) as mock_exec:
         await call_claude(prompt="hi", allowed_tools=[])
         args = mock_exec.call_args[0]
         assert "--allowedTools" not in args
@@ -133,14 +149,18 @@ async def test_call_claude_allowed_tools_empty(mock_process):
 
 @pytest.mark.asyncio
 async def test_call_claude_cwd_passed_to_subprocess(mock_process):
-    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process
+    ) as mock_exec:
         await call_claude(prompt="hi", cwd="/tmp/work")
         assert mock_exec.call_args.kwargs["cwd"] == "/tmp/work"
 
 
 @pytest.mark.asyncio
 async def test_call_claude_cwd_default_is_none(mock_process):
-    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process
+    ) as mock_exec:
         await call_claude(prompt="hi")
         assert mock_exec.call_args.kwargs["cwd"] is None
 
@@ -159,7 +179,12 @@ async def test_call_claude_nonzero_exit_with_stdout():
 def test_build_subprocess_env_contains_only_home_and_path():
     with patch.dict(
         "os.environ",
-        {"HOME": "/home/test", "PATH": "/usr/bin", "TELEGRAM_BOT_TOKEN": "secret", "OTHER_VAR": "value"},
+        {
+            "HOME": "/home/test",
+            "PATH": "/usr/bin",
+            "TELEGRAM_BOT_TOKEN": "secret",
+            "OTHER_VAR": "value",
+        },
         clear=True,
     ):
         env = _build_subprocess_env()
@@ -185,13 +210,18 @@ def test_build_subprocess_env_handles_missing_keys():
 
 @pytest.mark.asyncio
 async def test_call_claude_passes_sanitized_env(mock_process):
-    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
-        with patch.dict(
+    with (
+        patch(
+            "pyclaudius.claude.asyncio.create_subprocess_exec",
+            return_value=mock_process,
+        ) as mock_exec,
+        patch.dict(
             "os.environ",
             {"HOME": "/home/test", "PATH": "/usr/bin", "TELEGRAM_BOT_TOKEN": "secret"},
             clear=True,
-        ):
-            await call_claude(prompt="hi")
-            env_kwarg = mock_exec.call_args.kwargs["env"]
-            assert env_kwarg == {"HOME": "/home/test", "PATH": "/usr/bin"}
-            assert "TELEGRAM_BOT_TOKEN" not in env_kwarg
+        ),
+    ):
+        await call_claude(prompt="hi")
+        env_kwarg = mock_exec.call_args.kwargs["env"]
+        assert env_kwarg == {"HOME": "/home/test", "PATH": "/usr/bin"}
+        assert "TELEGRAM_BOT_TOKEN" not in env_kwarg
