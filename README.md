@@ -56,6 +56,34 @@ MAX_MEMORIES=100   # optional, default 100
 
 Memories are stored in `~/.pyclaudius-relay/memory.json` and injected into every prompt. To clear memory, delete the file or edit it manually.
 
+## Scheduled Tasks (Cron)
+
+pyclaudius supports recurring and one-time scheduled tasks. When enabled, Claude can create and manage jobs by including tags in its responses:
+
+- `[CRON_ADD: */30 * * * * | check the weather]` — recurring job (standard 5-field cron)
+- `[SCHEDULE: 2026-03-01 09:00 | remind me about the meeting]` — one-time job
+- `[CRON_REMOVE: 1]` — remove a job by number
+- `[CRON_LIST]` — list all scheduled jobs
+
+You can also manage jobs with Telegram commands:
+
+- `/addcron <min> <hour> <day> <month> <weekday> <prompt>` — add a recurring job
+- `/schedule <YYYY-MM-DD HH:MM> | <prompt>` — schedule a one-time task
+- `/listcron` — list all scheduled jobs
+- `/removecron <number>` — remove a job by number
+
+Enable it via environment variables:
+
+```bash
+CRON_ENABLED=true
+```
+
+Jobs are stored in `~/.pyclaudius-relay/cron.json` and survive restarts.
+
+### Silent responses
+
+When a scheduled job fires, Claude is instructed to respond with `[SILENT]` if there is nothing noteworthy to report. This suppresses the Telegram notification, avoiding spam from routine checks. Memory and cron tags in a silent response are still processed normally.
+
 ## Allowed Tools
 
 By default, Claude CLI in print mode (`-p`) does not have permission to use tools like `WebSearch` or `WebFetch`. To pre-approve tools, set the `ALLOWED_TOOLS` environment variable:
