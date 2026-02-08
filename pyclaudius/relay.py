@@ -7,6 +7,8 @@ from pyclaudius.config import Settings, ensure_dirs
 from pyclaudius.handlers import (
     handle_document,
     handle_forget_command,
+    handle_help_command,
+    handle_listmemory_command,
     handle_remember_command,
     handle_photo,
     handle_text,
@@ -45,7 +47,9 @@ def main() -> None:
         app.bot_data["memory"] = []
         logger.info("Memory disabled")
 
+    app.add_handler(CommandHandler("help", handle_help_command))
     app.add_handler(CommandHandler("remember", handle_remember_command))
+    app.add_handler(CommandHandler("listmemory", handle_listmemory_command))
     app.add_handler(CommandHandler("forget", handle_forget_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))

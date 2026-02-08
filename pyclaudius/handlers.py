@@ -216,10 +216,10 @@ async def handle_document(
 async def handle_remember_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Handle /remember command — list stored memory facts."""
+    """Handle /remember <fact> command — store a memory fact."""
     settings: Settings = context.bot_data["settings"]
 
-    if not update.effective_user or not update.message:
+    if not update.effective_user or not update.message or not update.message.text:
         return
 
     if not check_authorized(update.effective_user.id, allowed_user_id=settings.telegram_user_id):
@@ -230,13 +230,21 @@ async def handle_remember_command(
         await update.message.reply_text("Memory is disabled.")
         return
 
-    memory: list[str] = context.bot_data.get("memory", [])
-    if not memory:
-        await update.message.reply_text("No memories stored.")
+    fact = update.message.text.removeprefix("/remember").strip()
+    if not fact:
+        await update.message.reply_text("Usage: /remember <fact>")
         return
 
-    lines = "\n".join(f"{i + 1}. {fact}" for i, fact in enumerate(memory))
-    await update.message.reply_text(f"Stored memories ({len(memory)}):\n\n{lines}")
+    memory: list[str] = context.bot_data.get("memory", [])
+    memory = add_memories(
+        existing=memory,
+        new=[fact],
+        max_memories=settings.max_memories,
+    )
+    context.bot_data["memory"] = memory
+    save_memory(memory_file=settings.memory_file, memories=memory)
+    logger.info(f"Manually stored memory: {fact}")
+    await update.message.reply_text(f'Remembered: "{fact}"')
 
 
 async def handle_forget_command(
@@ -274,3 +282,53 @@ async def handle_forget_command(
     await update.message.reply_text(
         f'Removed {removed_count} memory/memories matching "{keyword}".'
     )
+
+
+async def handle_listmemory_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /listmemory command — list stored memory facts."""
+    settings: Settings = context.bot_data["settings"]
+
+    if not update.effective_user or not update.message:
+        return
+
+    if not check_authorized(update.effective_user.id, allowed_user_id=settings.telegram_user_id):
+        await update.message.reply_text("This bot is private.")
+        return
+
+    if not settings.memory_enabled:
+        await update.message.reply_text("Memory is disabled.")
+        return
+
+    memory: list[str] = context.bot_data.get("memory", [])
+    if not memory:
+        await update.message.reply_text("No memories stored.")
+        return
+
+    lines = "\n".join(f"{i + 1}. {fact}" for i, fact in enumerate(memory))
+    await update.message.reply_text(f"Stored memories ({len(memory)}):\n\n{lines}")
+
+
+async def handle_help_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /help command — show available commands."""
+    settings: Settings = context.bot_data["settings"]
+
+    if not update.effective_user or not update.message:
+        return
+
+    if not check_authorized(update.effective_user.id, allowed_user_id=settings.telegram_user_id):
+        await update.message.reply_text("This bot is private.")
+        return
+
+    help_text = (
+        "Available commands:\n\n"
+        "/help — show available commands\n"
+        "/remember <fact> — store a memory fact\n"
+        "/listmemory — list all stored memories\n"
+        "/forget <keyword> — remove memories matching keyword\n\n"
+        "Text, photo, and document messages are forwarded to Claude."
+    )
+    await update.message.reply_text(help_text)

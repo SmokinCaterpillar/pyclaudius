@@ -6,6 +6,8 @@ from pyclaudius.handlers import (
     check_authorized,
     handle_document,
     handle_forget_command,
+    handle_help_command,
+    handle_listmemory_command,
     handle_remember_command,
     handle_photo,
     handle_text,
@@ -229,11 +231,46 @@ async def test_handle_text_forget_tags_stripped_from_response(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_handle_remember_command_lists_facts(tmp_path):
+async def test_handle_remember_command_adds_fact(tmp_path):
+    update = _make_update(text="/remember user likes coffee")
+    context = _make_context(tmp_path, memory_enabled=True)
+    await handle_remember_command(update, context)
+    assert "user likes coffee" in context.bot_data["memory"]
+    reply = update.message.reply_text.call_args[0][0]
+    assert "Remembered" in reply
+    assert "user likes coffee" in reply
+
+
+@pytest.mark.asyncio
+async def test_handle_remember_command_no_text_shows_usage(tmp_path):
+    update = _make_update(text="/remember")
+    context = _make_context(tmp_path, memory_enabled=True)
+    await handle_remember_command(update, context)
+    update.message.reply_text.assert_called_once_with("Usage: /remember <fact>")
+
+
+@pytest.mark.asyncio
+async def test_handle_remember_command_disabled(tmp_path):
+    update = _make_update(text="/remember something")
+    context = _make_context(tmp_path, memory_enabled=False)
+    await handle_remember_command(update, context)
+    update.message.reply_text.assert_called_once_with("Memory is disabled.")
+
+
+@pytest.mark.asyncio
+async def test_handle_remember_command_unauthorized(tmp_path):
+    update = _make_update(user_id=99999, text="/remember something")
+    context = _make_context(tmp_path, memory_enabled=True)
+    await handle_remember_command(update, context)
+    update.message.reply_text.assert_called_once_with("This bot is private.")
+
+
+@pytest.mark.asyncio
+async def test_handle_listmemory_command_lists_facts(tmp_path):
     update = _make_update()
     context = _make_context(tmp_path, memory_enabled=True)
     context.bot_data["memory"] = ["likes coffee", "likes tea"]
-    await handle_remember_command(update, context)
+    await handle_listmemory_command(update, context)
     reply = update.message.reply_text.call_args[0][0]
     assert "likes coffee" in reply
     assert "likes tea" in reply
@@ -241,19 +278,47 @@ async def test_handle_remember_command_lists_facts(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_handle_remember_command_empty(tmp_path):
+async def test_handle_listmemory_command_empty(tmp_path):
     update = _make_update()
     context = _make_context(tmp_path, memory_enabled=True)
-    await handle_remember_command(update, context)
+    await handle_listmemory_command(update, context)
     update.message.reply_text.assert_called_once_with("No memories stored.")
 
 
 @pytest.mark.asyncio
-async def test_handle_remember_command_disabled(tmp_path):
+async def test_handle_listmemory_command_disabled(tmp_path):
     update = _make_update()
     context = _make_context(tmp_path, memory_enabled=False)
-    await handle_remember_command(update, context)
+    await handle_listmemory_command(update, context)
     update.message.reply_text.assert_called_once_with("Memory is disabled.")
+
+
+@pytest.mark.asyncio
+async def test_handle_listmemory_command_unauthorized(tmp_path):
+    update = _make_update(user_id=99999)
+    context = _make_context(tmp_path, memory_enabled=True)
+    await handle_listmemory_command(update, context)
+    update.message.reply_text.assert_called_once_with("This bot is private.")
+
+
+@pytest.mark.asyncio
+async def test_handle_help_command_shows_commands(tmp_path):
+    update = _make_update()
+    context = _make_context(tmp_path)
+    await handle_help_command(update, context)
+    reply = update.message.reply_text.call_args[0][0]
+    assert "/help" in reply
+    assert "/remember" in reply
+    assert "/listmemory" in reply
+    assert "/forget" in reply
+
+
+@pytest.mark.asyncio
+async def test_handle_help_command_unauthorized(tmp_path):
+    update = _make_update(user_id=99999)
+    context = _make_context(tmp_path)
+    await handle_help_command(update, context)
+    update.message.reply_text.assert_called_once_with("This bot is private.")
 
 
 @pytest.mark.asyncio
