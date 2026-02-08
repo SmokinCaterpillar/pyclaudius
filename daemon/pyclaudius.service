@@ -27,7 +27,7 @@ SyslogIdentifier=pyclaudius
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/YOUR_USERNAME/.pyclaudius-relay /home/YOUR_USERNAME/.cache/uv /home/YOUR_USERNAME/pyclaudius
+ReadWritePaths=/home/YOUR_USERNAME/.pyclaudius-relay /home/YOUR_USERNAME/.cache/uv /home/YOUR_USERNAME/pyclaudius /home/YOUR_USERNAME/.claude /home/YOUR_USERNAME/.local/share/claude
 PrivateTmp=true
 
 [Install]
