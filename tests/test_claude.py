@@ -129,3 +129,14 @@ async def test_call_claude_allowed_tools_empty(mock_process):
         await call_claude(prompt="hi", allowed_tools=[])
         args = mock_exec.call_args[0]
         assert "--allowedTools" not in args
+
+
+@pytest.mark.asyncio
+async def test_call_claude_nonzero_exit_with_stdout():
+    proc = AsyncMock()
+    proc.returncode = 1
+    proc.communicate.return_value = (b"Partial response from Claude", b"tool error")
+    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=proc):
+        result, session_id = await call_claude(prompt="search something")
+        assert result == "Partial response from Claude"
+        assert session_id is not None

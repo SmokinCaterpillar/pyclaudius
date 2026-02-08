@@ -1,3 +1,7 @@
+# 0.3.2 -2026-02-09
+
+* Bug fixing around tool use
+
 # 0.3.1 - 2026-02-09
 
 * New config of tools

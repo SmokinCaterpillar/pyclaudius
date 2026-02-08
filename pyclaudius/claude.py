@@ -50,6 +50,9 @@ async def call_claude(
     stderr_text = stderr.decode()
 
     if proc.returncode != 0:
+        if stdout_text.strip():
+            logger.warning(f"Claude exited with code {proc.returncode} but produced output")
+            return stdout_text.strip(), session_id
         error_msg = stderr_text.strip() or f"Claude exited with code {proc.returncode}"
         return f"Error: {error_msg}", None
 

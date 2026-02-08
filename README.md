@@ -61,7 +61,7 @@ Memories are stored in `~/.pyclaudius-relay/memory.json` and injected into every
 By default, Claude CLI in print mode (`-p`) does not have permission to use tools like `WebSearch` or `WebFetch`. To pre-approve tools, set the `ALLOWED_TOOLS` environment variable:
 
 ```bash
-ALLOWED_TOOLS='["WebSearch","WebFetch"]'
+ALLOWED_TOOLS=["WebSearch","WebFetch"]
 ```
 
 ## Deploying on a server (Hetzner, etc.)
