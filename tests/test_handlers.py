@@ -652,3 +652,4 @@ async def test_handle_help_command_shows_cron_commands(tmp_path):
     assert "/schedule" in reply
     assert "/listcron" in reply
     assert "/removecron" in reply
+    assert "/testcron" in reply

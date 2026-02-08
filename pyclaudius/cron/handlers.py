@@ -215,6 +215,52 @@ async def handle_removecron_command(
 
 
 @authorized
+async def handle_testcron_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /testcron <number> — immediately execute a scheduled job for testing."""
+    settings: Settings = context.bot_data["settings"]
+
+    if not update.message or not update.message.text:
+        return
+
+    if not settings.cron_enabled:
+        await update.message.reply_text("Cron scheduling is disabled.")
+        return
+
+    text = update.message.text.removeprefix("/testcron").strip()
+    if not text.isdigit():
+        await update.message.reply_text("Usage: /testcron <number>")
+        return
+
+    index = int(text)
+    cron_jobs: list[ScheduledJob] = context.bot_data.get("cron_jobs", [])
+
+    if index < 1 or index > len(cron_jobs):
+        await update.message.reply_text(
+            f"Invalid index {index}. Use /listcron to see valid numbers (1\u2013{len(cron_jobs)})."
+        )
+        return
+
+    job = cron_jobs[index - 1]
+    application = context.bot_data["application"]
+
+    await update.message.reply_text(
+        f"Testing job {index}: {job['expression']} \u2014 {job['prompt']}"
+    )
+
+    await execute_scheduled_job(
+        application=application,
+        chat_id=settings.telegram_user_id,
+        prompt_text=job["prompt"],
+        job_id=job["id"],
+        job_type=job["job_type"],
+        is_test=True,
+    )
+    logger.info(f"Test-executed job {job['id']}: {job['prompt'][:50]}")
+
+
+@authorized
 async def handle_listcron_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:

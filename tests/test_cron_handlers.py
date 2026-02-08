@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -7,6 +7,7 @@ from pyclaudius.cron.handlers import (
     handle_listcron_command,
     handle_removecron_command,
     handle_schedule_command,
+    handle_testcron_command,
     process_cron_response,
 )
 
@@ -376,3 +377,75 @@ def test_process_cron_response_past_schedule_ignored(tmp_path):
         context=context,
     )
     assert len(context.bot_data["cron_jobs"]) == 0
+
+
+# --- handle_testcron_command ---
+
+
+@pytest.mark.asyncio
+async def test_testcron_unauthorized(tmp_path):
+    update = _make_update(user_id=99999, text="/testcron 1")
+    context = _make_context(tmp_path)
+    await handle_testcron_command(update, context)
+    update.message.reply_text.assert_called_once_with("This bot is private.")
+
+
+@pytest.mark.asyncio
+async def test_testcron_disabled(tmp_path):
+    update = _make_update(text="/testcron 1")
+    context = _make_context(tmp_path, cron_enabled=False)
+    await handle_testcron_command(update, context)
+    update.message.reply_text.assert_called_once_with("Cron scheduling is disabled.")
+
+
+@pytest.mark.asyncio
+async def test_testcron_invalid_index(tmp_path):
+    update = _make_update(text="/testcron 5")
+    context = _make_context(tmp_path)
+    context.bot_data["cron_jobs"] = [
+        {
+            "id": "a",
+            "job_type": "cron",
+            "expression": "*/5 * * * *",
+            "prompt": "test",
+            "created_at": "2026-01-01T00:00:00",
+        }
+    ]
+    await handle_testcron_command(update, context)
+    reply = update.message.reply_text.call_args[0][0]
+    assert "Invalid index 5" in reply
+
+
+@pytest.mark.asyncio
+async def test_testcron_success(tmp_path):
+    update = _make_update(text="/testcron 1")
+    context = _make_context(tmp_path)
+    context.bot_data["cron_jobs"] = [
+        {
+            "id": "abc",
+            "job_type": "cron",
+            "expression": "*/5 * * * *",
+            "prompt": "check weather",
+            "created_at": "2026-01-01T00:00:00",
+        }
+    ]
+
+    with patch(
+        "pyclaudius.cron.handlers.execute_scheduled_job", new_callable=AsyncMock
+    ) as mock_execute:
+        await handle_testcron_command(update, context)
+
+    # First call is the confirmation message, second would be from execute
+    first_reply = update.message.reply_text.call_args_list[0][0][0]
+    assert "Testing job 1" in first_reply
+    assert "*/5 * * * *" in first_reply
+    assert "check weather" in first_reply
+
+    mock_execute.assert_called_once_with(
+        application=context.bot_data["application"],
+        chat_id="12345",
+        prompt_text="check weather",
+        job_id="abc",
+        job_type="cron",
+        is_test=True,
+    )

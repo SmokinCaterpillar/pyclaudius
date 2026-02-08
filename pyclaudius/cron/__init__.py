@@ -3,6 +3,7 @@ from pyclaudius.cron.handlers import (
     handle_listcron_command,
     handle_removecron_command,
     handle_schedule_command,
+    handle_testcron_command,
     process_cron_response,
 )
 from pyclaudius.cron.models import ScheduledJob
@@ -22,6 +23,7 @@ __all__ = [
     "handle_listcron_command",
     "handle_removecron_command",
     "handle_schedule_command",
+    "handle_testcron_command",
     "has_silent_tag",
     "load_cron_jobs",
     "process_cron_response",

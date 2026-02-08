@@ -153,3 +153,34 @@ async def test_execute_scheduled_job_stores_update_id():
     # (it's only removed by handle_text)
     scheduled_ids = application.bot_data["_scheduled_update_ids"]
     assert len(scheduled_ids) == 1
+
+
+@pytest.mark.asyncio
+async def test_execute_scheduled_job_is_test_does_not_remove_once_job():
+    job_data = {
+        "id": "once-job-1",
+        "job_type": "once",
+        "expression": "2026-03-01 10:00",
+        "prompt": "reminder",
+        "created_at": "2026-01-01T00:00:00",
+    }
+    application = MagicMock()
+    application.bot_data = {
+        "cron_jobs": [job_data],
+        "settings": MagicMock(cron_file="cron.json"),
+    }
+    application.bot = MagicMock()
+    application.process_update = AsyncMock()
+
+    await execute_scheduled_job(
+        application=application,
+        chat_id="12345",
+        prompt_text="reminder",
+        job_id="once-job-1",
+        job_type="once",
+        is_test=True,
+    )
+
+    # Job should still be in the list (not removed because is_test=True)
+    assert len(application.bot_data["cron_jobs"]) == 1
+    assert application.bot_data["cron_jobs"][0]["id"] == "once-job-1"

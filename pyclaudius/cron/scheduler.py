@@ -52,7 +52,7 @@ def unregister_job(*, scheduler: AsyncIOScheduler, job_id: str) -> None:
     try:
         scheduler.remove_job(job_id)
     except Exception:
-        logger.debug(
+        logger.warning(
             f"Job {job_id} not found in scheduler (already removed or expired)"
         )
 
@@ -90,6 +90,7 @@ async def execute_scheduled_job(
     prompt_text: str,
     job_id: str,
     job_type: str,
+    is_test: bool = False,
 ) -> None:
     """Execute a scheduled job by dispatching a synthetic Update through the application."""
     global _update_counter
@@ -116,7 +117,7 @@ async def execute_scheduled_job(
 
     await application.process_update(update)
 
-    if job_type == "once":
+    if job_type == "once" and not is_test:
         cron_jobs: list[ScheduledJob] = application.bot_data.get("cron_jobs", [])
         cron_jobs = [j for j in cron_jobs if j["id"] != job_id]
         application.bot_data["cron_jobs"] = cron_jobs

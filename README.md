@@ -71,6 +71,7 @@ You can also manage jobs with Telegram commands:
 - `/schedule <YYYY-MM-DD HH:MM> | <prompt>` — schedule a one-time task
 - `/listcron` — list all scheduled jobs
 - `/removecron <number>` — remove a job by number
+- `/testcron <number>` — immediately test a job without waiting for its schedule
 
 Enable it via environment variables:
 

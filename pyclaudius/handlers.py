@@ -429,7 +429,8 @@ async def handle_help_command(
         "/addcron <min> <hour> <day> <month> <weekday> <prompt> \u2014 add a recurring cron job\n"
         "/schedule <datetime> | <prompt> \u2014 schedule a one-time task\n"
         "/listcron \u2014 list all scheduled jobs\n"
-        "/removecron <number> \u2014 remove a scheduled job by number\n\n"
+        "/removecron <number> \u2014 remove a scheduled job by number\n"
+        "/testcron <number> \u2014 immediately test a scheduled job\n\n"
         "Text, photo, and document messages are forwarded to Claude."
     )
     await update.message.reply_text(help_text)

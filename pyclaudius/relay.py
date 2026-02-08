@@ -17,6 +17,7 @@ from pyclaudius.cron.handlers import (
     handle_listcron_command,
     handle_removecron_command,
     handle_schedule_command,
+    handle_testcron_command,
 )
 from pyclaudius.cron.scheduler import (
     create_scheduler,
@@ -145,6 +146,7 @@ def main() -> None:
     app.add_handler(CommandHandler("schedule", handle_schedule_command))
     app.add_handler(CommandHandler("listcron", handle_listcron_command))
     app.add_handler(CommandHandler("removecron", handle_removecron_command))
+    app.add_handler(CommandHandler("testcron", handle_testcron_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
