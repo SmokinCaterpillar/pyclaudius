@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:
     settings = Settings()
+    logger.info(f"Started with {str(settings)}")
     ensure_dirs(settings=settings)
 
     if not acquire_lock(lock_file=settings.lock_file):

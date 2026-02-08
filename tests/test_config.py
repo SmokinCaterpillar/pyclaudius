@@ -48,6 +48,7 @@ def test_ensure_dirs_creates_directories(tmp_path, monkeypatch):
 def test_settings_allowed_tools_default(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
     monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    monkeypatch.setenv("ALLOWED_TOOLS", "[]")
     s = Settings()
     assert s.allowed_tools == []
 
@@ -58,6 +59,16 @@ def test_settings_allowed_tools_from_env(monkeypatch):
     monkeypatch.setenv("ALLOWED_TOOLS", '["WebSearch","WebFetch"]')
     s = Settings()
     assert s.allowed_tools == ["WebSearch", "WebFetch"]
+
+
+def test_settings_str_masks_token(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "secret-token-123")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    s = Settings()
+    result = str(s)
+    assert "secret-token-123" not in result
+    assert "xxx" in result
+    assert "12345" in result
 
 
 def test_ensure_dirs_idempotent(tmp_path, monkeypatch):

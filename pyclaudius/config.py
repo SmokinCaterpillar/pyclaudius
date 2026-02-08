@@ -2,7 +2,6 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env")
 
@@ -13,6 +12,13 @@ class Settings(BaseSettings):
     memory_enabled: bool = False
     max_memories: int = 100
     allowed_tools: list[str] = []
+
+    def __str__(self) -> str:
+        fields = {
+            k: "xxx" if k == "telegram_bot_token" else v
+            for k, v in self.model_dump().items()
+        }
+        return f"Settings({', '.join(f'{k}={v!r}' for k, v in fields.items())})"
 
     @property
     def temp_dir(self) -> Path:
