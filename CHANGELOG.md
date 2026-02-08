@@ -1,3 +1,7 @@
+# 0.3.0 - 2026-02-09
+
+* New forgetting mechanism
+
 # 0.2.1 - 2026-02-09
 
 * Bug fixes for missing permissions for files

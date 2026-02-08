@@ -10,8 +10,10 @@ from pyclaudius.claude import call_claude
 from pyclaudius.config import Settings
 from pyclaudius.memory import (
     add_memories,
+    extract_forget_tags,
     extract_remember_tags,
     format_memory_section,
+    remove_memories,
     save_memory,
     strip_remember_tags,
 )
@@ -37,21 +39,32 @@ def _get_memory_section(*, settings: Settings, memory: list[str]) -> str | None:
 def _process_memory_response(
     *, response: str, settings: Settings, context: ContextTypes.DEFAULT_TYPE
 ) -> str:
-    """Extract REMEMBER tags from response, update memory, return cleaned response."""
+    """Extract REMEMBER/FORGET tags from response, update memory, return cleaned response."""
     if not settings.memory_enabled:
         return response
 
+    memory: list[str] = context.bot_data.get("memory", [])
+    changed = False
+
+    forget_keywords = extract_forget_tags(text=response)
+    if forget_keywords:
+        memory = remove_memories(existing=memory, keywords=forget_keywords)
+        changed = True
+        logger.info(f"Forgot memories matching: {forget_keywords}")
+
     new_facts = extract_remember_tags(text=response)
     if new_facts:
-        memory: list[str] = context.bot_data.get("memory", [])
-        updated = add_memories(
+        memory = add_memories(
             existing=memory,
             new=new_facts,
             max_memories=settings.max_memories,
         )
-        context.bot_data["memory"] = updated
-        save_memory(memory_file=settings.memory_file, memories=updated)
-        logger.info(f"Stored {len(new_facts)} new memory fact(s), total: {len(updated)}")
+        changed = True
+        logger.info(f"Stored {len(new_facts)} new memory fact(s), total: {len(memory)}")
+
+    if changed:
+        context.bot_data["memory"] = memory
+        save_memory(memory_file=settings.memory_file, memories=memory)
 
     return strip_remember_tags(text=response)
 
@@ -192,3 +205,66 @@ async def handle_document(
 
     with contextlib.suppress(OSError):
         os.unlink(file_path)
+
+
+async def handle_remember_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /remember command — list stored memory facts."""
+    settings: Settings = context.bot_data["settings"]
+
+    if not update.effective_user or not update.message:
+        return
+
+    if not check_authorized(update.effective_user.id, allowed_user_id=settings.telegram_user_id):
+        await update.message.reply_text("This bot is private.")
+        return
+
+    if not settings.memory_enabled:
+        await update.message.reply_text("Memory is disabled.")
+        return
+
+    memory: list[str] = context.bot_data.get("memory", [])
+    if not memory:
+        await update.message.reply_text("No memories stored.")
+        return
+
+    lines = "\n".join(f"{i + 1}. {fact}" for i, fact in enumerate(memory))
+    await update.message.reply_text(f"Stored memories ({len(memory)}):\n\n{lines}")
+
+
+async def handle_forget_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /forget <keyword> command — remove matching memories."""
+    settings: Settings = context.bot_data["settings"]
+
+    if not update.effective_user or not update.message or not update.message.text:
+        return
+
+    if not check_authorized(update.effective_user.id, allowed_user_id=settings.telegram_user_id):
+        await update.message.reply_text("This bot is private.")
+        return
+
+    if not settings.memory_enabled:
+        await update.message.reply_text("Memory is disabled.")
+        return
+
+    keyword = update.message.text.removeprefix("/forget").strip()
+    if not keyword:
+        await update.message.reply_text("Usage: /forget <keyword>")
+        return
+
+    memory: list[str] = context.bot_data.get("memory", [])
+    updated = remove_memories(existing=memory, keywords=[keyword])
+    removed_count = len(memory) - len(updated)
+
+    if removed_count == 0:
+        await update.message.reply_text(f'No memories matching "{keyword}".')
+        return
+
+    context.bot_data["memory"] = updated
+    save_memory(memory_file=settings.memory_file, memories=updated)
+    await update.message.reply_text(
+        f'Removed {removed_count} memory/memories matching "{keyword}".'
+    )

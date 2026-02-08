@@ -1,10 +1,16 @@
 import logging
 import sys
 
-from telegram.ext import ApplicationBuilder, MessageHandler, filters
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
 
 from pyclaudius.config import Settings, ensure_dirs
-from pyclaudius.handlers import handle_document, handle_photo, handle_text
+from pyclaudius.handlers import (
+    handle_document,
+    handle_forget_command,
+    handle_remember_command,
+    handle_photo,
+    handle_text,
+)
 from pyclaudius.lockfile import acquire_lock, release_lock, setup_signal_handlers
 from pyclaudius.memory import load_memory
 from pyclaudius.session import load_session
@@ -37,6 +43,8 @@ def main() -> None:
         app.bot_data["memory"] = []
         logger.info("Memory disabled")
 
+    app.add_handler(CommandHandler("remember", handle_remember_command))
+    app.add_handler(CommandHandler("forget", handle_forget_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))

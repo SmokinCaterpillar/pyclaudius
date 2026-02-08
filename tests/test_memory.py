@@ -2,9 +2,11 @@ import json
 
 from pyclaudius.memory import (
     add_memories,
+    extract_forget_tags,
     extract_remember_tags,
     format_memory_section,
     load_memory,
+    remove_memories,
     save_memory,
     strip_remember_tags,
 )
@@ -106,3 +108,52 @@ def test_add_memories_max_limit():
 def test_add_memories_empty():
     result = add_memories(existing=[], new=[])
     assert result == []
+
+
+def test_extract_forget_tags_none():
+    assert extract_forget_tags(text="No tags here") == []
+
+
+def test_extract_forget_tags_single():
+    text = "OK [FORGET: coffee] done"
+    assert extract_forget_tags(text=text) == ["coffee"]
+
+
+def test_extract_forget_tags_case_insensitive():
+    text = "[forget: old fact] and [Forget: another]"
+    assert extract_forget_tags(text=text) == ["old fact", "another"]
+
+
+def test_strip_remember_tags_also_strips_forget():
+    text = "Hello [REMEMBER: a] and [FORGET: b] world"
+    assert strip_remember_tags(text=text) == "Hello  and  world"
+
+
+def test_remove_memories_by_keyword():
+    result = remove_memories(
+        existing=["user likes coffee", "user likes tea", "user is 30"],
+        keywords=["coffee"],
+    )
+    assert result == ["user likes tea", "user is 30"]
+
+
+def test_remove_memories_case_insensitive():
+    result = remove_memories(
+        existing=["User likes Coffee", "user likes tea"],
+        keywords=["coffee"],
+    )
+    assert result == ["user likes tea"]
+
+
+def test_remove_memories_multiple_keywords():
+    result = remove_memories(
+        existing=["likes coffee", "likes tea", "age 30"],
+        keywords=["coffee", "age"],
+    )
+    assert result == ["likes tea"]
+
+
+def test_remove_memories_no_match():
+    facts = ["likes coffee", "likes tea"]
+    result = remove_memories(existing=facts, keywords=["python"])
+    assert result == facts

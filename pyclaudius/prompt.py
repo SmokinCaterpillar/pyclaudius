@@ -7,7 +7,8 @@ def build_prompt(*, user_message: str, memory_section: str | None = None) -> str
     time_str = now.strftime("%A, %B %d, %Y, %I:%M %p")
 
     memory_instruction = (
-        "If you learn an important fact about the user, include [REMEMBER: fact] in your response.\n\n"
+        "If you learn an important fact about the user, include [REMEMBER: fact] in your response. "
+        "To correct or remove an outdated fact, include [FORGET: keyword] in your response.\n\n"
         if memory_section is not None
         else ""
     )

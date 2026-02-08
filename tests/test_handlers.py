@@ -5,6 +5,8 @@ import pytest
 from pyclaudius.handlers import (
     check_authorized,
     handle_document,
+    handle_forget_command,
+    handle_remember_command,
     handle_photo,
     handle_text,
 )
@@ -199,3 +201,84 @@ async def test_handle_text_remember_tags_not_processed_when_disabled(tmp_path):
         update.message.reply_text.assert_called_once_with(
             "Got it [REMEMBER: user likes tea]"
         )
+
+
+@pytest.mark.asyncio
+async def test_handle_text_forget_tags_remove_memories(tmp_path):
+    update = _make_update(text="I no longer like coffee")
+    context = _make_context(tmp_path, memory_enabled=True)
+    context.bot_data["memory"] = ["user likes coffee", "user likes tea"]
+    with patch("pyclaudius.handlers.call_claude", new_callable=AsyncMock) as mock_claude:
+        mock_claude.return_value = ("OK [FORGET: coffee] noted", None)
+        await handle_text(update, context)
+        assert "user likes coffee" not in context.bot_data["memory"]
+        assert "user likes tea" in context.bot_data["memory"]
+
+
+@pytest.mark.asyncio
+async def test_handle_text_forget_tags_stripped_from_response(tmp_path):
+    update = _make_update(text="forget coffee")
+    context = _make_context(tmp_path, memory_enabled=True)
+    context.bot_data["memory"] = ["user likes coffee"]
+    with patch("pyclaudius.handlers.call_claude", new_callable=AsyncMock) as mock_claude:
+        mock_claude.return_value = ("Done [FORGET: coffee] bye", None)
+        await handle_text(update, context)
+        update.message.reply_text.assert_called_once_with("Done  bye")
+
+
+@pytest.mark.asyncio
+async def test_handle_remember_command_lists_facts(tmp_path):
+    update = _make_update()
+    context = _make_context(tmp_path, memory_enabled=True)
+    context.bot_data["memory"] = ["likes coffee", "likes tea"]
+    await handle_remember_command(update, context)
+    reply = update.message.reply_text.call_args[0][0]
+    assert "likes coffee" in reply
+    assert "likes tea" in reply
+    assert "2" in reply
+
+
+@pytest.mark.asyncio
+async def test_handle_remember_command_empty(tmp_path):
+    update = _make_update()
+    context = _make_context(tmp_path, memory_enabled=True)
+    await handle_remember_command(update, context)
+    update.message.reply_text.assert_called_once_with("No memories stored.")
+
+
+@pytest.mark.asyncio
+async def test_handle_remember_command_disabled(tmp_path):
+    update = _make_update()
+    context = _make_context(tmp_path, memory_enabled=False)
+    await handle_remember_command(update, context)
+    update.message.reply_text.assert_called_once_with("Memory is disabled.")
+
+
+@pytest.mark.asyncio
+async def test_handle_forget_command_removes_matching(tmp_path):
+    update = _make_update(text="/forget coffee")
+    context = _make_context(tmp_path, memory_enabled=True)
+    context.bot_data["memory"] = ["likes coffee", "likes tea"]
+    await handle_forget_command(update, context)
+    assert context.bot_data["memory"] == ["likes tea"]
+    reply = update.message.reply_text.call_args[0][0]
+    assert "Removed 1" in reply
+
+
+@pytest.mark.asyncio
+async def test_handle_forget_command_no_match(tmp_path):
+    update = _make_update(text="/forget python")
+    context = _make_context(tmp_path, memory_enabled=True)
+    context.bot_data["memory"] = ["likes coffee"]
+    await handle_forget_command(update, context)
+    assert context.bot_data["memory"] == ["likes coffee"]
+    reply = update.message.reply_text.call_args[0][0]
+    assert "No memories matching" in reply
+
+
+@pytest.mark.asyncio
+async def test_handle_forget_command_no_keyword(tmp_path):
+    update = _make_update(text="/forget")
+    context = _make_context(tmp_path, memory_enabled=True)
+    await handle_forget_command(update, context)
+    update.message.reply_text.assert_called_once_with("Usage: /forget <keyword>")
