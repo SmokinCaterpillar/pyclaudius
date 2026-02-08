@@ -132,6 +132,20 @@ async def test_call_claude_allowed_tools_empty(mock_process):
 
 
 @pytest.mark.asyncio
+async def test_call_claude_cwd_passed_to_subprocess(mock_process):
+    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
+        await call_claude(prompt="hi", cwd="/tmp/work")
+        assert mock_exec.call_args.kwargs["cwd"] == "/tmp/work"
+
+
+@pytest.mark.asyncio
+async def test_call_claude_cwd_default_is_none(mock_process):
+    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
+        await call_claude(prompt="hi")
+        assert mock_exec.call_args.kwargs["cwd"] is None
+
+
+@pytest.mark.asyncio
 async def test_call_claude_nonzero_exit_with_stdout():
     proc = AsyncMock()
     proc.returncode = 1

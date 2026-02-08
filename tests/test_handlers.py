@@ -36,6 +36,7 @@ def _make_context(tmp_path, *, memory_enabled=False, max_memories=100, allowed_t
             max_memories=max_memories,
             memory_file=tmp_path / "memory.json",
             allowed_tools=allowed_tools or [],
+            claude_work_dir=tmp_path / "claude-work",
         ),
         "session": {"session_id": None, "last_activity": ""},
         "memory": [],

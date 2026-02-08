@@ -95,6 +95,7 @@ async def handle_text(
         session_id=session.get("session_id"),
         resume=True,
         allowed_tools=settings.allowed_tools,
+        cwd=str(settings.claude_work_dir),
     )
 
     if new_session_id:
@@ -142,6 +143,7 @@ async def handle_photo(
         resume=True,
         add_dirs=[str(settings.uploads_dir)],
         allowed_tools=settings.allowed_tools,
+        cwd=str(settings.claude_work_dir),
     )
 
     if new_session_id:
@@ -193,6 +195,7 @@ async def handle_document(
         resume=True,
         add_dirs=[str(settings.uploads_dir)],
         allowed_tools=settings.allowed_tools,
+        cwd=str(settings.claude_work_dir),
     )
 
     if new_session_id:

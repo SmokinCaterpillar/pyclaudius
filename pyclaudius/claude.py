@@ -13,6 +13,7 @@ async def call_claude(
     resume: bool = False,
     add_dirs: list[str] | None = None,
     allowed_tools: list[str] | None = None,
+    cwd: str | None = None,
 ) -> tuple[str, str | None]:
     """Spawn the Claude CLI and return (response_text, session_id).
 
@@ -41,6 +42,7 @@ async def call_claude(
             *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
         )
         stdout, stderr = await proc.communicate()
     except FileNotFoundError:

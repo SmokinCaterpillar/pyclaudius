@@ -26,6 +26,7 @@ def test_settings_derived_paths(tmp_path, monkeypatch):
     assert s.uploads_dir == relay / "uploads"
     assert s.session_file == relay / "session.json"
     assert s.lock_file == relay / "bot.lock"
+    assert s.claude_work_dir == relay / "claude-work"
 
 
 def test_settings_missing_required_vars(monkeypatch):
@@ -43,6 +44,7 @@ def test_ensure_dirs_creates_directories(tmp_path, monkeypatch):
     ensure_dirs(settings=s)
     assert s.temp_dir.is_dir()
     assert s.uploads_dir.is_dir()
+    assert s.claude_work_dir.is_dir()
 
 
 def test_settings_allowed_tools_default(monkeypatch):

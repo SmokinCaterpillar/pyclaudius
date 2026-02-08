@@ -40,8 +40,13 @@ class Settings(BaseSettings):
     def memory_file(self) -> Path:
         return self.relay_dir / "memory.json"
 
+    @property
+    def claude_work_dir(self) -> Path:
+        return self.relay_dir / "claude-work"
+
 
 def ensure_dirs(*, settings: Settings) -> None:
-    """Create temp_dir and uploads_dir if they don't exist."""
+    """Create temp_dir, uploads_dir, and claude_work_dir if they don't exist."""
     settings.temp_dir.mkdir(parents=True, exist_ok=True)
     settings.uploads_dir.mkdir(parents=True, exist_ok=True)
+    settings.claude_work_dir.mkdir(parents=True, exist_ok=True)

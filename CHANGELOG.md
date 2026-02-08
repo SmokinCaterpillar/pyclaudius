@@ -1,3 +1,7 @@
+# 0.4.0 - 2026-02-09
+
+* Better security make claude no longer have access to .env and the code directory
+
 # 0.3.2 -2026-02-09
 
 * Bug fixing around tool use
