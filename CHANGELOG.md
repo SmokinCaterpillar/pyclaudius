@@ -1,3 +1,7 @@
+# [0.6.0] - 2026-02-09
+
+* New cron functionality
+
 # 0.5.1 -2026-02-08
 
 * /forget <int> works to forget the ith fact, memory will issue a warning on overflow

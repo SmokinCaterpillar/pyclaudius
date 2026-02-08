@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from pydantic_settings import SettingsConfigDict
 
 from pyclaudius.config import Settings, ensure_dirs
 
@@ -32,6 +33,7 @@ def test_settings_derived_paths(tmp_path, monkeypatch):
 def test_settings_missing_required_vars(monkeypatch):
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("TELEGRAM_USER_ID", raising=False)
+    monkeypatch.setattr(Settings, "model_config", SettingsConfigDict(env_file=None))
     with pytest.raises(ValidationError):
         Settings()
 
