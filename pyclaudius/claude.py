@@ -1,8 +1,25 @@
 import asyncio
 import logging
+import os
 import uuid
 
 logger = logging.getLogger(__name__)
+
+
+def _build_subprocess_env() -> dict[str, str]:
+    """Build a minimal environment for the Claude CLI subprocess.
+
+    Only HOME (needed for ~/.claude/ auth) and PATH (needed to find
+    executables) are forwarded.  Everything else — including secrets
+    like TELEGRAM_BOT_TOKEN — is stripped so the subprocess cannot
+    leak them.
+    """
+    env: dict[str, str] = {}
+    for key in ("HOME", "PATH"):
+        value = os.environ.get(key)
+        if value is not None:
+            env[key] = value
+    return env
 
 
 async def call_claude(
@@ -43,6 +60,7 @@ async def call_claude(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
+            env=_build_subprocess_env(),
         )
         stdout, stderr = await proc.communicate()
     except FileNotFoundError:

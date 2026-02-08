@@ -118,10 +118,10 @@ Ready-to-use service files are in the [`daemon/`](daemon/) directory.
 
 **Linux (systemd):**
 
-Edit `daemon/pyclaudius.service` and replace `YOUR_USERNAME` with `pyclaudius`, then:
+Install the service (automatically replaces `YOUR_USERNAME` with your login name):
 
 ```bash
-sudo cp ~/pyclaudius/daemon/pyclaudius.service /etc/systemd/system/
+sed "s/YOUR_USERNAME/$USER/g" ~/pyclaudius/daemon/pyclaudius.service | sudo tee /etc/systemd/system/pyclaudius.service > /dev/null
 sudo systemctl daemon-reload
 sudo systemctl enable pyclaudius
 sudo systemctl start pyclaudius

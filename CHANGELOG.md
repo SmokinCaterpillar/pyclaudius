@@ -1,3 +1,7 @@
+# 0.4.1 - 2026-02-09
+
+* Even less privileges for the systemd
+
 # 0.4.0 - 2026-02-09
 
 * Better security make claude no longer have access to .env and the code directory

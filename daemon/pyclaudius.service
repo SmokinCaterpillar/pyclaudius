@@ -29,6 +29,17 @@ ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=/home/YOUR_USERNAME/.pyclaudius-relay /home/YOUR_USERNAME/.claude /home/YOUR_USERNAME/.local/share/claude
 PrivateTmp=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
 
 [Install]
 WantedBy=multi-user.target

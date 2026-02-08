@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from pyclaudius.claude import call_claude
+from pyclaudius.claude import _build_subprocess_env, call_claude
 
 
 @pytest.fixture
@@ -154,3 +154,44 @@ async def test_call_claude_nonzero_exit_with_stdout():
         result, session_id = await call_claude(prompt="search something")
         assert result == "Partial response from Claude"
         assert session_id is not None
+
+
+def test_build_subprocess_env_contains_only_home_and_path():
+    with patch.dict(
+        "os.environ",
+        {"HOME": "/home/test", "PATH": "/usr/bin", "TELEGRAM_BOT_TOKEN": "secret", "OTHER_VAR": "value"},
+        clear=True,
+    ):
+        env = _build_subprocess_env()
+        assert env == {"HOME": "/home/test", "PATH": "/usr/bin"}
+
+
+def test_build_subprocess_env_excludes_secrets():
+    with patch.dict(
+        "os.environ",
+        {"HOME": "/home/test", "PATH": "/usr/bin", "TELEGRAM_BOT_TOKEN": "secret123"},
+        clear=True,
+    ):
+        env = _build_subprocess_env()
+        assert "TELEGRAM_BOT_TOKEN" not in env
+
+
+def test_build_subprocess_env_handles_missing_keys():
+    with patch.dict("os.environ", {"HOME": "/home/test"}, clear=True):
+        env = _build_subprocess_env()
+        assert env == {"HOME": "/home/test"}
+        assert "PATH" not in env
+
+
+@pytest.mark.asyncio
+async def test_call_claude_passes_sanitized_env(mock_process):
+    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
+        with patch.dict(
+            "os.environ",
+            {"HOME": "/home/test", "PATH": "/usr/bin", "TELEGRAM_BOT_TOKEN": "secret"},
+            clear=True,
+        ):
+            await call_claude(prompt="hi")
+            env_kwarg = mock_exec.call_args.kwargs["env"]
+            assert env_kwarg == {"HOME": "/home/test", "PATH": "/usr/bin"}
+            assert "TELEGRAM_BOT_TOKEN" not in env_kwarg
