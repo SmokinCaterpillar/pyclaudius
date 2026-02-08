@@ -184,3 +184,26 @@ async def test_execute_scheduled_job_is_test_does_not_remove_once_job():
     # Job should still be in the list (not removed because is_test=True)
     assert len(application.bot_data["cron_jobs"]) == 1
     assert application.bot_data["cron_jobs"][0]["id"] == "once-job-1"
+
+
+@pytest.mark.asyncio
+async def test_execute_scheduled_job_sets_bot_on_chat():
+    application = MagicMock()
+    application.bot_data = {
+        "cron_jobs": [],
+        "settings": MagicMock(cron_file="cron.json"),
+    }
+    application.bot = MagicMock()
+    application.process_update = AsyncMock()
+
+    await execute_scheduled_job(
+        application=application,
+        chat_id="12345",
+        prompt_text="test prompt",
+        job_id="job1",
+        job_type="cron",
+    )
+
+    # Verify the synthetic Chat object had set_bot called with the application bot
+    update_arg = application.process_update.call_args[0][0]
+    assert update_arg.message.chat._bot is application.bot  # noqa: SLF001

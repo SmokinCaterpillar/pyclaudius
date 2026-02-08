@@ -100,6 +100,7 @@ async def execute_scheduled_job(
 
     user = User(id=int(chat_id), is_bot=False, first_name="Scheduled")
     chat = Chat(id=int(chat_id), type="private")
+    chat.set_bot(application.bot)
     message = Message(
         message_id=_update_counter,
         date=datetime.now(tz=UTC),
