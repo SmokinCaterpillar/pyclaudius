@@ -34,10 +34,12 @@ from pyclaudius.handlers import (
     handle_photo,
     handle_remember_command,
     handle_text,
+    handle_timezone_command,
 )
 from pyclaudius.lockfile import acquire_lock, release_lock, setup_signal_handlers
 from pyclaudius.memory import load_memory
 from pyclaudius.session import load_session
+from pyclaudius.timezone import load_timezone
 from pyclaudius.version import __version__
 
 logging.basicConfig(
@@ -92,6 +94,11 @@ def main() -> None:
         app.bot_data["memory"] = []
         logger.info("Memory disabled")
 
+    app.bot_data["user_timezone"] = load_timezone(
+        timezone_file=settings.timezone_file
+    )
+    logger.info(f"User timezone: {app.bot_data['user_timezone'] or 'UTC (default)'}")
+
     # Cron / scheduling setup
     if settings.cron_enabled:
         scheduler = create_scheduler()
@@ -105,7 +112,9 @@ def main() -> None:
         valid_jobs = []
         for job in cron_jobs:
             if job["job_type"] == "once":
-                dt = parse_schedule_datetime(text=job["expression"])
+                dt = parse_schedule_datetime(
+                    text=job["expression"], timezone=job.get("timezone")
+                )
                 if dt is not None and dt <= now:
                     logger.info(
                         f"Removing past one-time job {job['id']}: {job['prompt'][:50]}"
@@ -139,6 +148,7 @@ def main() -> None:
         logger.info("Cron disabled")
 
     app.add_handler(CommandHandler("help", handle_help_command))
+    app.add_handler(CommandHandler("timezone", handle_timezone_command))
     app.add_handler(CommandHandler("remember", handle_remember_command))
     app.add_handler(CommandHandler("listmemory", handle_listmemory_command))
     app.add_handler(CommandHandler("forget", handle_forget_command))

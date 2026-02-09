@@ -42,3 +42,13 @@ def test_build_prompt_not_scheduled_no_silent_instruction():
     result = build_prompt(user_message="test", cron_count=1, is_scheduled=False)
     assert "[SILENT]" not in result
     assert "automated scheduled task" not in result
+
+
+def test_build_prompt_with_timezone():
+    result = build_prompt(user_message="test", timezone="Europe/Berlin")
+    assert "(Europe/Berlin)" in result
+
+
+def test_build_prompt_with_timezone_none():
+    result = build_prompt(user_message="test", timezone=None)
+    assert "(UTC)" in result

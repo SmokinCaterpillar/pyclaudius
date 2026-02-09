@@ -9,6 +9,7 @@ from telegram.ext import Application
 
 from pyclaudius.cron.models import ScheduledJob
 from pyclaudius.cron.store import save_cron_jobs
+from pyclaudius.timezone import get_zoneinfo
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +29,12 @@ def register_job(
     callback_kwargs: dict[str, object],
 ) -> None:
     """Register a job with the scheduler using the appropriate trigger."""
+    job_tz = job.get("timezone")
     if job["job_type"] == "cron":
-        trigger = CronTrigger.from_crontab(job["expression"])
+        tz = get_zoneinfo(timezone=job_tz)
+        trigger = CronTrigger.from_crontab(job["expression"], timezone=tz)
     else:
-        dt = parse_schedule_datetime(text=job["expression"])
+        dt = parse_schedule_datetime(text=job["expression"], timezone=job_tz)
         if dt is None:
             logger.warning(f"Invalid datetime for job {job['id']}: {job['expression']}")
             return
@@ -66,8 +69,11 @@ def validate_cron_expression(*, expression: str) -> bool:
         return False
 
 
-def parse_schedule_datetime(*, text: str) -> datetime | None:
+def parse_schedule_datetime(
+    *, text: str, timezone: str | None = None
+) -> datetime | None:
     """Parse a datetime string. Supports '%Y-%m-%d %H:%M' and ISO 8601."""
+    tz = get_zoneinfo(timezone=timezone)
     formats = [
         "%Y-%m-%d %H:%M",
         "%Y-%m-%dT%H:%M:%S",
@@ -77,7 +83,7 @@ def parse_schedule_datetime(*, text: str) -> datetime | None:
     for fmt in formats:
         try:
             dt = datetime.strptime(text.strip(), fmt)  # noqa: DTZ007
-            return dt.replace(tzinfo=UTC)
+            return dt.replace(tzinfo=tz)
         except ValueError:
             continue
     return None

@@ -85,6 +85,16 @@ Jobs are stored in `~/.pyclaudius-relay/cron.json` and survive restarts.
 
 When a scheduled job fires, Claude is instructed to respond with `[SILENT]` if there is nothing noteworthy to report. This suppresses the Telegram notification, avoiding spam from routine checks. Memory and cron tags in a silent response are still processed normally.
 
+## Timezone
+
+Set your timezone so Claude sees the correct local time and scheduled jobs fire at the right local time:
+
+- `/timezone <city>` — set timezone with fuzzy matching (e.g. `/timezone Berlin`)
+- Affects prompt time display and cron/schedule job scheduling
+- Default is UTC if not set
+
+The timezone is stored in `~/.pyclaudius-relay/timezone.json`.
+
 ## Allowed Tools
 
 By default, Claude CLI in print mode (`-p`) does not have permission to use tools like `WebSearch` or `WebFetch`. To pre-approve tools, set the `ALLOWED_TOOLS` environment variable:

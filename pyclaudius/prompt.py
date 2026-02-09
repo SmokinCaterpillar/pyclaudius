@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+from pyclaudius.timezone import get_zoneinfo
+
 
 def build_prompt(
     *,
@@ -7,9 +9,12 @@ def build_prompt(
     memory_section: str | None = None,
     cron_count: int | None = None,
     is_scheduled: bool = False,
+    timezone: str | None = None,
 ) -> str:
     """Build the full prompt with system context for Claude."""
-    now = datetime.now(tz=UTC).astimezone()
+    tz = get_zoneinfo(timezone=timezone)
+    now = datetime.now(tz=UTC).astimezone(tz)
+    tz_label = timezone or "UTC"
     time_str = now.strftime("%A, %B %d, %Y, %I:%M %p")
 
     memory_instruction = (
@@ -37,7 +42,7 @@ def build_prompt(
 
     return (
         "You are responding via Telegram. Keep responses concise.\n\n"
-        f"Current time: {time_str}\n\n"
+        f"Current time of your user: {time_str} ({tz_label})\n\n"
         f"{memory_instruction}"
         f"{cron_instruction}"
         f"{memory_section or ''}"

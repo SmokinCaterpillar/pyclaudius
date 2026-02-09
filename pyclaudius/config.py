@@ -48,6 +48,10 @@ class Settings(BaseSettings):
         return self.relay_dir / "cron.json"
 
     @property
+    def timezone_file(self) -> Path:
+        return self.relay_dir / "timezone.json"
+
+    @property
     def claude_work_dir(self) -> Path:
         return self.relay_dir / "claude-work"
 

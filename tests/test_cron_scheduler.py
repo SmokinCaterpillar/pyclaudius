@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -59,6 +60,18 @@ def test_parse_schedule_datetime_invalid():
 def test_parse_schedule_datetime_strips_whitespace():
     result = parse_schedule_datetime(text="  2026-02-10 14:30  ")
     assert result is not None
+
+
+def test_parse_schedule_datetime_with_timezone():
+    result = parse_schedule_datetime(text="2026-02-10 14:30", timezone="Europe/Berlin")
+    assert result is not None
+    assert result.tzinfo == ZoneInfo("Europe/Berlin")
+
+
+def test_parse_schedule_datetime_with_none_timezone():
+    result = parse_schedule_datetime(text="2026-02-10 14:30", timezone=None)
+    assert result is not None
+    assert result.tzinfo == ZoneInfo("UTC")
 
 
 def test_register_job_cron():

@@ -22,6 +22,7 @@ from pyclaudius.memory import (
 from pyclaudius.prompt import build_prompt
 from pyclaudius.response import split_response
 from pyclaudius.session import save_session
+from pyclaudius.timezone import find_timezones, save_timezone
 from pyclaudius.tooling import authorized
 
 logger = logging.getLogger(__name__)
@@ -105,6 +106,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     memory: list[str] = context.bot_data.get("memory", [])
     cron_jobs: list[dict] = context.bot_data.get("cron_jobs", [])
+    user_tz: str | None = context.bot_data.get("user_timezone")
     memory_section = _get_memory_section(settings=settings, memory=memory)
     cron_count = _get_cron_count(settings=settings, cron_jobs=cron_jobs)
     prompt = build_prompt(
@@ -112,6 +114,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         memory_section=memory_section,
         cron_count=cron_count,
         is_scheduled=is_scheduled,
+        timezone=user_tz,
     )
 
     claude_lock = context.bot_data.get("claude_lock")
@@ -181,12 +184,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     caption = update.message.caption or "Analyze this image."
     memory: list[str] = context.bot_data.get("memory", [])
     cron_jobs: list[dict] = context.bot_data.get("cron_jobs", [])
+    user_tz: str | None = context.bot_data.get("user_timezone")
     memory_section = _get_memory_section(settings=settings, memory=memory)
     cron_count = _get_cron_count(settings=settings, cron_jobs=cron_jobs)
     prompt = build_prompt(
         user_message=f"[Image: {file_path}]\n\n{caption}",
         memory_section=memory_section,
         cron_count=cron_count,
+        timezone=user_tz,
     )
 
     claude_lock = context.bot_data.get("claude_lock")
@@ -255,12 +260,14 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     caption = update.message.caption or f"Analyze: {file_name}"
     memory: list[str] = context.bot_data.get("memory", [])
     cron_jobs: list[dict] = context.bot_data.get("cron_jobs", [])
+    user_tz: str | None = context.bot_data.get("user_timezone")
     memory_section = _get_memory_section(settings=settings, memory=memory)
     cron_count = _get_cron_count(settings=settings, cron_jobs=cron_jobs)
     prompt = build_prompt(
         user_message=f"[File: {file_path}]\n\n{caption}",
         memory_section=memory_section,
         cron_count=cron_count,
+        timezone=user_tz,
     )
 
     claude_lock = context.bot_data.get("claude_lock")
@@ -419,6 +426,57 @@ async def handle_listmemory_command(
 
 
 @authorized
+async def handle_timezone_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /timezone <city> command \u2014 set timezone with fuzzy matching."""
+    settings: Settings = context.bot_data["settings"]
+
+    if not update.message or not update.message.text:
+        return
+
+    query = update.message.text.removeprefix("/timezone").strip()
+    current_tz: str | None = context.bot_data.get("user_timezone")
+
+    if not query:
+        tz_display = current_tz or "UTC (default)"
+        await update.message.reply_text(
+            f"Current timezone: {tz_display}\n\n"
+            "Usage: /timezone <city>\n"
+            "Example: /timezone Berlin"
+        )
+        return
+
+    matches = find_timezones(query=query)
+
+    if not matches:
+        await update.message.reply_text(
+            f'No timezone found for "{query}". Try a city name like Berlin, Tokyo, or New York.'
+        )
+        return
+
+    # Auto-select if single match or first match's city component equals query
+    normalized_query = query.lower().replace(" ", "_")
+    first_city = matches[0].rsplit("/", maxsplit=1)[-1].lower()
+    if len(matches) == 1 or first_city == normalized_query:
+        selected = matches[0]
+        context.bot_data["user_timezone"] = selected
+        save_timezone(timezone_file=settings.timezone_file, timezone=selected)
+        logger.info(f"Timezone set to {selected}")
+        await update.message.reply_text(f"Timezone set to {selected}")
+        return
+
+    # Multiple ambiguous matches \u2014 show top 10
+    shown = matches[:10]
+    lines = "\n".join(f"  {tz}" for tz in shown)
+    extra = f"\n  ... and {len(matches) - 10} more" if len(matches) > 10 else ""
+    await update.message.reply_text(
+        f'Multiple timezones match "{query}":\n{lines}{extra}\n\n'
+        "Please be more specific."
+    )
+
+
+@authorized
 async def handle_help_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -429,6 +487,7 @@ async def handle_help_command(
     help_text = (
         "Available commands:\n\n"
         "/help \u2014 show available commands\n"
+        "/timezone <city> \u2014 set timezone (fuzzy match)\n"
         "/remember <fact> \u2014 store a memory fact\n"
         "/listmemory \u2014 list all stored memories\n"
         "/forget <keyword or number> \u2014 remove memories matching keyword or by index\n"

@@ -82,6 +82,15 @@ def test_settings_auto_refresh_auth_default(monkeypatch):
     assert s.auto_refresh_auth is False
 
 
+def test_settings_timezone_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "1")
+    relay = tmp_path / "test-relay"
+    monkeypatch.setenv("RELAY_DIR", str(relay))
+    s = Settings()
+    assert s.timezone_file == relay / "timezone.json"
+
+
 def test_ensure_dirs_idempotent(tmp_path, monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
     monkeypatch.setenv("TELEGRAM_USER_ID", "1")

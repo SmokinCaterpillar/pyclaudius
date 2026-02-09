@@ -115,3 +115,52 @@ def test_format_cron_list_mixed_types():
     assert "[ONCE]" in result
     assert "1." in result
     assert "2." in result
+
+
+def test_format_cron_list_once_job_converted_to_display_timezone():
+    """A once job stored in America/New_York should display in Europe/Berlin."""
+    jobs = [
+        {
+            "id": "a",
+            "job_type": "once",
+            "expression": "2026-03-01 10:00",
+            "prompt": "reminder",
+            "created_at": "2026-01-01T00:00:00",
+            "timezone": "America/New_York",
+        },
+    ]
+    result = format_cron_list(jobs=jobs, display_timezone="Europe/Berlin")
+    # 10:00 NY = 16:00 Berlin (EST +6h)
+    assert "16:00" in result
+
+
+def test_format_cron_list_cron_job_shows_timezone_annotation():
+    """A cron job with non-UTC timezone should show annotation."""
+    jobs = [
+        {
+            "id": "a",
+            "job_type": "cron",
+            "expression": "0 9 * * *",
+            "prompt": "morning",
+            "created_at": "2026-01-01T00:00:00",
+            "timezone": "Europe/Berlin",
+        },
+    ]
+    result = format_cron_list(jobs=jobs, display_timezone="Europe/Berlin")
+    assert "(Europe/Berlin)" in result
+
+
+def test_format_cron_list_no_display_timezone():
+    """Without display_timezone, once jobs show raw expression."""
+    jobs = [
+        {
+            "id": "a",
+            "job_type": "once",
+            "expression": "2026-03-01 10:00",
+            "prompt": "reminder",
+            "created_at": "2026-01-01T00:00:00",
+            "timezone": "America/New_York",
+        },
+    ]
+    result = format_cron_list(jobs=jobs)
+    assert "2026-03-01 10:00" in result

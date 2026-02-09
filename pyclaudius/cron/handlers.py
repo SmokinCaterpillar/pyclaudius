@@ -59,6 +59,7 @@ async def handle_addcron_command(
         await update.message.reply_text(f"Invalid cron expression: {expression}")
         return
 
+    user_tz: str | None = context.bot_data.get("user_timezone")
     job: ScheduledJob = {
         "id": str(uuid.uuid4()),
         "job_type": "cron",
@@ -66,6 +67,8 @@ async def handle_addcron_command(
         "prompt": prompt_text,
         "created_at": datetime.now(tz=UTC).isoformat(),
     }
+    if user_tz is not None:
+        job["timezone"] = user_tz
 
     cron_jobs: list[ScheduledJob] = context.bot_data.get("cron_jobs", [])
     cron_jobs.append(job)
@@ -124,7 +127,8 @@ async def handle_schedule_command(
         )
         return
 
-    dt = parse_schedule_datetime(text=datetime_str)
+    user_tz: str | None = context.bot_data.get("user_timezone")
+    dt = parse_schedule_datetime(text=datetime_str, timezone=user_tz)
     if dt is None:
         await update.message.reply_text(
             f"Invalid datetime: {datetime_str}\n"
@@ -143,6 +147,8 @@ async def handle_schedule_command(
         "prompt": prompt_text,
         "created_at": datetime.now(tz=UTC).isoformat(),
     }
+    if user_tz is not None:
+        job["timezone"] = user_tz
 
     cron_jobs: list[ScheduledJob] = context.bot_data.get("cron_jobs", [])
     cron_jobs.append(job)
@@ -275,7 +281,8 @@ async def handle_listcron_command(
         return
 
     cron_jobs: list[ScheduledJob] = context.bot_data.get("cron_jobs", [])
-    text = format_cron_list(jobs=cron_jobs)
+    user_tz: str | None = context.bot_data.get("user_timezone")
+    text = format_cron_list(jobs=cron_jobs, display_timezone=user_tz)
     await update.message.reply_text(text)
 
 
@@ -289,6 +296,7 @@ def process_cron_response(
     cron_jobs: list[ScheduledJob] = context.bot_data.get("cron_jobs", [])
     scheduler = context.bot_data["scheduler"]
     application = context.bot_data["application"]
+    user_tz: str | None = context.bot_data.get("user_timezone")
     changed = False
 
     # Process CRON_ADD tags
@@ -306,6 +314,8 @@ def process_cron_response(
             "prompt": prompt_text,
             "created_at": datetime.now(tz=UTC).isoformat(),
         }
+        if user_tz is not None:
+            job["timezone"] = user_tz
         cron_jobs.append(job)
         register_job(
             scheduler=scheduler,
@@ -330,7 +340,7 @@ def process_cron_response(
         if parsed is None:
             continue
         datetime_str, prompt_text = parsed
-        dt = parse_schedule_datetime(text=datetime_str)
+        dt = parse_schedule_datetime(text=datetime_str, timezone=user_tz)
         if dt is None or dt <= datetime.now(tz=UTC):
             continue
         job = {
@@ -340,6 +350,8 @@ def process_cron_response(
             "prompt": prompt_text,
             "created_at": datetime.now(tz=UTC).isoformat(),
         }
+        if user_tz is not None:
+            job["timezone"] = user_tz
         cron_jobs.append(job)
         register_job(
             scheduler=scheduler,
@@ -374,7 +386,7 @@ def process_cron_response(
     # Append list if requested
     cleaned = strip_cron_tags(text=response)
     if has_cron_list_tag(text=response):
-        job_list = format_cron_list(jobs=cron_jobs)
+        job_list = format_cron_list(jobs=cron_jobs, display_timezone=user_tz)
         cleaned = f"{cleaned}\n\n{job_list}"
 
     return cleaned

@@ -12,7 +12,7 @@ from pyclaudius.cron.handlers import (
 )
 
 
-def _make_context(tmp_path, *, cron_enabled=True):
+def _make_context(tmp_path, *, cron_enabled=True, user_timezone=None):
     context = MagicMock()
     context.bot_data = {
         "settings": MagicMock(
@@ -24,6 +24,7 @@ def _make_context(tmp_path, *, cron_enabled=True):
         "cron_jobs": [],
         "scheduler": MagicMock(),
         "application": MagicMock(),
+        "user_timezone": user_timezone,
     }
     context.bot = AsyncMock()
     return context
@@ -449,3 +450,33 @@ async def test_testcron_success(tmp_path):
         job_type="cron",
         is_test=True,
     )
+
+
+# --- timezone propagation ---
+
+
+@pytest.mark.asyncio
+async def test_addcron_stores_timezone(tmp_path):
+    update = _make_update(text="/addcron */5 * * * * check weather")
+    context = _make_context(tmp_path, user_timezone="Europe/Berlin")
+    await handle_addcron_command(update, context)
+    assert len(context.bot_data["cron_jobs"]) == 1
+    assert context.bot_data["cron_jobs"][0]["timezone"] == "Europe/Berlin"
+
+
+@pytest.mark.asyncio
+async def test_schedule_stores_timezone(tmp_path):
+    update = _make_update(text="/schedule 2030-12-31 23:59 | new year reminder")
+    context = _make_context(tmp_path, user_timezone="Asia/Tokyo")
+    await handle_schedule_command(update, context)
+    assert len(context.bot_data["cron_jobs"]) == 1
+    assert context.bot_data["cron_jobs"][0]["timezone"] == "Asia/Tokyo"
+
+
+@pytest.mark.asyncio
+async def test_addcron_no_timezone_when_none(tmp_path):
+    update = _make_update(text="/addcron */5 * * * * check weather")
+    context = _make_context(tmp_path, user_timezone=None)
+    await handle_addcron_command(update, context)
+    assert len(context.bot_data["cron_jobs"]) == 1
+    assert "timezone" not in context.bot_data["cron_jobs"][0]

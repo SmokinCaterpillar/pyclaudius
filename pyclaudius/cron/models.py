@@ -1,4 +1,4 @@
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 
 class ScheduledJob(TypedDict):
@@ -7,3 +7,4 @@ class ScheduledJob(TypedDict):
     expression: str
     prompt: str
     created_at: str
+    timezone: NotRequired[str]
