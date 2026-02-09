@@ -12,7 +12,9 @@ class Settings(BaseSettings):
     relay_dir: Path = Path.home() / ".pyclaudius-relay"
     memory_enabled: bool = False
     max_memories: int = 100
+    cron_enabled: bool = False
     allowed_tools: list[str] = []
+    auto_refresh_auth: bool = False
 
     def __str__(self) -> str:
         fields = {
@@ -40,6 +42,14 @@ class Settings(BaseSettings):
     @property
     def memory_file(self) -> Path:
         return self.relay_dir / "memory.json"
+
+    @property
+    def cron_file(self) -> Path:
+        return self.relay_dir / "cron.json"
+
+    @property
+    def timezone_file(self) -> Path:
+        return self.relay_dir / "timezone.json"
 
     @property
     def claude_work_dir(self) -> Path:

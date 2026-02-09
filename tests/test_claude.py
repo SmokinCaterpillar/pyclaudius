@@ -225,3 +225,78 @@ async def test_call_claude_passes_sanitized_env(mock_process):
         env_kwarg = mock_exec.call_args.kwargs["env"]
         assert env_kwarg == {"HOME": "/home/test", "PATH": "/usr/bin"}
         assert "TELEGRAM_BOT_TOKEN" not in env_kwarg
+
+
+@pytest.mark.asyncio
+async def test_call_claude_retries_on_auth_error():
+    auth_error_proc = AsyncMock()
+    auth_error_proc.returncode = 0
+    auth_error_proc.communicate.return_value = (
+        b'{"type":"error","error":{"type":"authentication_error"}}',
+        b"",
+    )
+
+    success_proc = AsyncMock()
+    success_proc.returncode = 0
+    success_proc.communicate.return_value = (b"Hello from Claude", b"")
+
+    refresh_proc = AsyncMock()
+    refresh_proc.returncode = 0
+    refresh_proc.communicate.return_value = (b"", b"")
+
+    # Both modules share the same asyncio object, so we must use a single
+    # mock and dispatch based on args (``-p`` flag == call_claude).
+    call_count = 0
+
+    async def dispatcher(*args, **kwargs):
+        nonlocal call_count
+        if "-p" in args:
+            call_count += 1
+            return auth_error_proc if call_count == 1 else success_proc
+        return refresh_proc
+
+    with patch(
+        "asyncio.create_subprocess_exec",
+        side_effect=dispatcher,
+    ):
+        result, session_id = await call_claude(
+            prompt="hello", auto_refresh_auth=True
+        )
+        assert result == "Hello from Claude"
+        assert session_id is not None
+        assert call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_call_claude_no_retry_on_normal_error():
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.communicate.return_value = (b"Some normal response", b"")
+
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec",
+        return_value=proc,
+    ) as mock_exec:
+        result, _ = await call_claude(prompt="hello")
+        assert result == "Some normal response"
+        mock_exec.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_call_claude_no_retry_when_auto_refresh_disabled():
+    """Auth error response returned as-is when auto_refresh_auth is False (default)."""
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.communicate.return_value = (
+        b'{"type":"error","error":{"type":"authentication_error"}}',
+        b"",
+    )
+
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec",
+        return_value=proc,
+    ) as mock_exec:
+        result, session_id = await call_claude(prompt="hello")
+        assert "authentication_error" in result
+        assert session_id is not None
+        mock_exec.assert_called_once()

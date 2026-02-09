@@ -56,6 +56,45 @@ MAX_MEMORIES=100   # optional, default 100
 
 Memories are stored in `~/.pyclaudius-relay/memory.json` and injected into every prompt. To clear memory, delete the file or edit it manually.
 
+## Scheduled Tasks (Cron)
+
+pyclaudius supports recurring and one-time scheduled tasks. When enabled, Claude can create and manage jobs by including tags in its responses:
+
+- `[CRON_ADD: */30 * * * * | check the weather]` — recurring job (standard 5-field cron)
+- `[SCHEDULE: 2026-03-01 09:00 | remind me about the meeting]` — one-time job
+- `[CRON_REMOVE: 1]` — remove a job by number
+- `[CRON_LIST]` — list all scheduled jobs
+
+You can also manage jobs with Telegram commands:
+
+- `/addcron <min> <hour> <day> <month> <weekday> <prompt>` — add a recurring job
+- `/schedule <YYYY-MM-DD HH:MM> | <prompt>` — schedule a one-time task
+- `/listcron` — list all scheduled jobs
+- `/removecron <number>` — remove a job by number
+- `/testcron <number>` — immediately test a job without waiting for its schedule
+
+Enable it via environment variables:
+
+```bash
+CRON_ENABLED=true
+```
+
+Jobs are stored in `~/.pyclaudius-relay/cron.json` and survive restarts.
+
+### Silent responses
+
+When a scheduled job fires, Claude is instructed to respond with `[SILENT]` if there is nothing noteworthy to report. This suppresses the Telegram notification, avoiding spam from routine checks. Memory and cron tags in a silent response are still processed normally.
+
+## Timezone
+
+Set your timezone so Claude sees the correct local time and scheduled jobs fire at the right local time:
+
+- `/timezone <city>` — set timezone with fuzzy matching (e.g. `/timezone Berlin`)
+- Affects prompt time display and cron/schedule job scheduling
+- Default is UTC if not set
+
+The timezone is stored in `~/.pyclaudius-relay/timezone.json`.
+
 ## Allowed Tools
 
 By default, Claude CLI in print mode (`-p`) does not have permission to use tools like `WebSearch` or `WebFetch`. To pre-approve tools, set the `ALLOWED_TOOLS` environment variable:
@@ -63,6 +102,24 @@ By default, Claude CLI in print mode (`-p`) does not have permission to use tool
 ```bash
 ALLOWED_TOOLS=["WebSearch","WebFetch"]
 ```
+
+## Auto-refresh authentication
+
+When Claude CLI is used in print mode (`-p`), it does not automatically refresh expired OAuth tokens. pyclaudius can detect authentication errors and spawn a brief interactive Claude session to trigger a token refresh.
+
+**This feature is disabled by default** because it is a gray area in the Claude CLI terms of service — the `-p` flag intentionally skips interactive authentication flows, and this workaround bypasses that by spawning a short-lived interactive session that immediately exits after the token is refreshed.
+
+To enable it:
+
+```bash
+AUTO_REFRESH_AUTH=true
+```
+
+When enabled, if an API call returns an authentication error (expired token, 401), pyclaudius will:
+1. Spawn `claude` interactively and pipe `/exit` to trigger the OAuth refresh
+2. Retry the original request with the refreshed token
+
+If you are uncomfortable with this approach, leave the setting disabled and manually re-authenticate with `claude auth login` when tokens expire.
 
 ## Deploying on a server (Hetzner, etc.)
 

@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from pydantic_settings import SettingsConfigDict
 
 from pyclaudius.config import Settings, ensure_dirs
 
@@ -32,6 +33,7 @@ def test_settings_derived_paths(tmp_path, monkeypatch):
 def test_settings_missing_required_vars(monkeypatch):
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("TELEGRAM_USER_ID", raising=False)
+    monkeypatch.setattr(Settings, "model_config", SettingsConfigDict(env_file=None))
     with pytest.raises(ValidationError):
         Settings()
 
@@ -71,6 +73,22 @@ def test_settings_str_masks_token(monkeypatch):
     assert "secret-token-123" not in result
     assert "xxx" in result
     assert "12345" in result
+
+
+def test_settings_auto_refresh_auth_default(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    s = Settings()
+    assert s.auto_refresh_auth is False
+
+
+def test_settings_timezone_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "1")
+    relay = tmp_path / "test-relay"
+    monkeypatch.setenv("RELAY_DIR", str(relay))
+    s = Settings()
+    assert s.timezone_file == relay / "timezone.json"
 
 
 def test_ensure_dirs_idempotent(tmp_path, monkeypatch):

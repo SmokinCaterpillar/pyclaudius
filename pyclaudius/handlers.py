@@ -8,6 +8,8 @@ from telegram.ext import ContextTypes
 
 from pyclaudius.claude import call_claude
 from pyclaudius.config import Settings
+from pyclaudius.cron.handlers import process_cron_response
+from pyclaudius.cron.tags import has_silent_tag
 from pyclaudius.memory import (
     add_memories,
     extract_forget_tags,
@@ -20,19 +22,23 @@ from pyclaudius.memory import (
 from pyclaudius.prompt import build_prompt
 from pyclaudius.response import split_response
 from pyclaudius.session import save_session
+from pyclaudius.timezone import find_timezones, save_timezone
+from pyclaudius.tooling import authorized
 
 logger = logging.getLogger(__name__)
-
-
-def check_authorized(user_id: int, *, allowed_user_id: str) -> bool:
-    """Check if a Telegram user ID is authorized."""
-    return str(user_id) == allowed_user_id
 
 
 def _get_memory_section(*, settings: Settings, memory: list[str]) -> str | None:
     """Build the memory section for the prompt if memory is enabled."""
     if settings.memory_enabled:
         return format_memory_section(memories=memory)
+    return None
+
+
+def _get_cron_count(*, settings: Settings, cron_jobs: list[dict]) -> int | None:
+    """Return cron job count if cron is enabled, else None."""
+    if settings.cron_enabled:
+        return len(cron_jobs)
     return None
 
 
@@ -82,36 +88,57 @@ def _process_memory_response(
     return strip_remember_tags(text=response) + overflow_warning
 
 
+@authorized
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming text messages."""
     settings: Settings = context.bot_data["settings"]
     session: dict = context.bot_data["session"]
 
-    if not update.effective_user or not update.message or not update.message.text:
+    if not update.message or not update.message.text:
         return
 
-    if not check_authorized(
-        update.effective_user.id, allowed_user_id=settings.telegram_user_id
-    ):
-        await update.message.reply_text("This bot is private.")
-        return
+    scheduled_ids: set[int] = context.bot_data.get("_scheduled_update_ids", set())
+    is_scheduled = update.update_id in scheduled_ids
+    scheduled_ids.discard(update.update_id)
 
     logger.info(f"Text from {update.effective_user.id}: {update.message.text[:50]}")
     await update.message.chat.send_action(action=ChatAction.TYPING)
 
     memory: list[str] = context.bot_data.get("memory", [])
+    cron_jobs: list[dict] = context.bot_data.get("cron_jobs", [])
+    user_tz: str | None = context.bot_data.get("user_timezone")
     memory_section = _get_memory_section(settings=settings, memory=memory)
+    cron_count = _get_cron_count(settings=settings, cron_jobs=cron_jobs)
     prompt = build_prompt(
-        user_message=update.message.text, memory_section=memory_section
+        user_message=update.message.text,
+        memory_section=memory_section,
+        cron_count=cron_count,
+        is_scheduled=is_scheduled,
+        timezone=user_tz,
     )
-    response, new_session_id = await call_claude(
-        prompt=prompt,
-        claude_path=settings.claude_path,
-        session_id=session.get("session_id"),
-        resume=True,
-        allowed_tools=settings.allowed_tools,
-        cwd=str(settings.claude_work_dir),
-    )
+
+    claude_lock = context.bot_data.get("claude_lock")
+    if claude_lock:
+        async with claude_lock:
+            response, new_session_id = await call_claude(
+                prompt=prompt,
+                claude_path=settings.claude_path,
+                session_id=session.get("session_id"),
+                resume=True,
+                allowed_tools=settings.allowed_tools,
+                cwd=str(settings.claude_work_dir),
+                auto_refresh_auth=settings.auto_refresh_auth,
+            )
+    else:
+        response, new_session_id = await call_claude(
+            prompt=prompt,
+            claude_path=settings.claude_path,
+            session_id=session.get("session_id"),
+            resume=True,
+            allowed_tools=settings.allowed_tools,
+            cwd=str(settings.claude_work_dir),
+            auto_refresh_auth=settings.auto_refresh_auth,
+        )
 
     if new_session_id:
         session["session_id"] = new_session_id
@@ -123,22 +150,27 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     response = _process_memory_response(
         response=response, settings=settings, context=context
     )
+    response = process_cron_response(
+        response=response, settings=settings, context=context
+    )
+
+    if is_scheduled and has_silent_tag(text=response):
+        logger.info(
+            f"Scheduled job {update.update_id} response was silent, not notifying user"
+        )
+        return
+
     for chunk in split_response(text=response):
         await update.message.reply_text(chunk)
 
 
+@authorized
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming photos."""
     settings: Settings = context.bot_data["settings"]
     session: dict = context.bot_data["session"]
 
-    if not update.effective_user or not update.message or not update.message.photo:
-        return
-
-    if not check_authorized(
-        update.effective_user.id, allowed_user_id=settings.telegram_user_id
-    ):
-        await update.message.reply_text("This bot is private.")
+    if not update.message or not update.message.photo:
         return
 
     logger.info(f"Photo from {update.effective_user.id}")
@@ -151,19 +183,41 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     caption = update.message.caption or "Analyze this image."
     memory: list[str] = context.bot_data.get("memory", [])
+    cron_jobs: list[dict] = context.bot_data.get("cron_jobs", [])
+    user_tz: str | None = context.bot_data.get("user_timezone")
     memory_section = _get_memory_section(settings=settings, memory=memory)
+    cron_count = _get_cron_count(settings=settings, cron_jobs=cron_jobs)
     prompt = build_prompt(
-        user_message=f"[Image: {file_path}]\n\n{caption}", memory_section=memory_section
+        user_message=f"[Image: {file_path}]\n\n{caption}",
+        memory_section=memory_section,
+        cron_count=cron_count,
+        timezone=user_tz,
     )
-    response, new_session_id = await call_claude(
-        prompt=prompt,
-        claude_path=settings.claude_path,
-        session_id=session.get("session_id"),
-        resume=True,
-        add_dirs=[str(settings.uploads_dir)],
-        allowed_tools=settings.allowed_tools,
-        cwd=str(settings.claude_work_dir),
-    )
+
+    claude_lock = context.bot_data.get("claude_lock")
+    if claude_lock:
+        async with claude_lock:
+            response, new_session_id = await call_claude(
+                prompt=prompt,
+                claude_path=settings.claude_path,
+                session_id=session.get("session_id"),
+                resume=True,
+                add_dirs=[str(settings.uploads_dir)],
+                allowed_tools=settings.allowed_tools,
+                cwd=str(settings.claude_work_dir),
+                auto_refresh_auth=settings.auto_refresh_auth,
+            )
+    else:
+        response, new_session_id = await call_claude(
+            prompt=prompt,
+            claude_path=settings.claude_path,
+            session_id=session.get("session_id"),
+            resume=True,
+            add_dirs=[str(settings.uploads_dir)],
+            allowed_tools=settings.allowed_tools,
+            cwd=str(settings.claude_work_dir),
+            auto_refresh_auth=settings.auto_refresh_auth,
+        )
 
     if new_session_id:
         session["session_id"] = new_session_id
@@ -175,6 +229,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     response = _process_memory_response(
         response=response, settings=settings, context=context
     )
+    response = process_cron_response(
+        response=response, settings=settings, context=context
+    )
     for chunk in split_response(text=response):
         await update.message.reply_text(chunk)
 
@@ -182,18 +239,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         os.unlink(file_path)
 
 
+@authorized
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming documents."""
     settings: Settings = context.bot_data["settings"]
     session: dict = context.bot_data["session"]
 
-    if not update.effective_user or not update.message or not update.message.document:
-        return
-
-    if not check_authorized(
-        update.effective_user.id, allowed_user_id=settings.telegram_user_id
-    ):
-        await update.message.reply_text("This bot is private.")
+    if not update.message or not update.message.document:
         return
 
     doc = update.message.document
@@ -207,19 +259,41 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     caption = update.message.caption or f"Analyze: {file_name}"
     memory: list[str] = context.bot_data.get("memory", [])
+    cron_jobs: list[dict] = context.bot_data.get("cron_jobs", [])
+    user_tz: str | None = context.bot_data.get("user_timezone")
     memory_section = _get_memory_section(settings=settings, memory=memory)
+    cron_count = _get_cron_count(settings=settings, cron_jobs=cron_jobs)
     prompt = build_prompt(
-        user_message=f"[File: {file_path}]\n\n{caption}", memory_section=memory_section
+        user_message=f"[File: {file_path}]\n\n{caption}",
+        memory_section=memory_section,
+        cron_count=cron_count,
+        timezone=user_tz,
     )
-    response, new_session_id = await call_claude(
-        prompt=prompt,
-        claude_path=settings.claude_path,
-        session_id=session.get("session_id"),
-        resume=True,
-        add_dirs=[str(settings.uploads_dir)],
-        allowed_tools=settings.allowed_tools,
-        cwd=str(settings.claude_work_dir),
-    )
+
+    claude_lock = context.bot_data.get("claude_lock")
+    if claude_lock:
+        async with claude_lock:
+            response, new_session_id = await call_claude(
+                prompt=prompt,
+                claude_path=settings.claude_path,
+                session_id=session.get("session_id"),
+                resume=True,
+                add_dirs=[str(settings.uploads_dir)],
+                allowed_tools=settings.allowed_tools,
+                cwd=str(settings.claude_work_dir),
+                auto_refresh_auth=settings.auto_refresh_auth,
+            )
+    else:
+        response, new_session_id = await call_claude(
+            prompt=prompt,
+            claude_path=settings.claude_path,
+            session_id=session.get("session_id"),
+            resume=True,
+            add_dirs=[str(settings.uploads_dir)],
+            allowed_tools=settings.allowed_tools,
+            cwd=str(settings.claude_work_dir),
+            auto_refresh_auth=settings.auto_refresh_auth,
+        )
 
     if new_session_id:
         session["session_id"] = new_session_id
@@ -231,6 +305,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     response = _process_memory_response(
         response=response, settings=settings, context=context
     )
+    response = process_cron_response(
+        response=response, settings=settings, context=context
+    )
     for chunk in split_response(text=response):
         await update.message.reply_text(chunk)
 
@@ -238,19 +315,14 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         os.unlink(file_path)
 
 
+@authorized
 async def handle_remember_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Handle /remember <fact> command — store a memory fact."""
     settings: Settings = context.bot_data["settings"]
 
-    if not update.effective_user or not update.message or not update.message.text:
-        return
-
-    if not check_authorized(
-        update.effective_user.id, allowed_user_id=settings.telegram_user_id
-    ):
-        await update.message.reply_text("This bot is private.")
+    if not update.message or not update.message.text:
         return
 
     if not settings.memory_enabled:
@@ -280,19 +352,14 @@ async def handle_remember_command(
     await update.message.reply_text(reply)
 
 
+@authorized
 async def handle_forget_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Handle /forget <keyword> command — remove matching memories."""
     settings: Settings = context.bot_data["settings"]
 
-    if not update.effective_user or not update.message or not update.message.text:
-        return
-
-    if not check_authorized(
-        update.effective_user.id, allowed_user_id=settings.telegram_user_id
-    ):
-        await update.message.reply_text("This bot is private.")
+    if not update.message or not update.message.text:
         return
 
     if not settings.memory_enabled:
@@ -335,19 +402,14 @@ async def handle_forget_command(
     )
 
 
+@authorized
 async def handle_listmemory_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Handle /listmemory command — list stored memory facts."""
     settings: Settings = context.bot_data["settings"]
 
-    if not update.effective_user or not update.message:
-        return
-
-    if not check_authorized(
-        update.effective_user.id, allowed_user_id=settings.telegram_user_id
-    ):
-        await update.message.reply_text("This bot is private.")
+    if not update.message:
         return
 
     if not settings.memory_enabled:
@@ -363,27 +425,77 @@ async def handle_listmemory_command(
     await update.message.reply_text(f"Stored memories ({len(memory)}):\n\n{lines}")
 
 
+@authorized
+async def handle_timezone_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /timezone <city> command \u2014 set timezone with fuzzy matching."""
+    settings: Settings = context.bot_data["settings"]
+
+    if not update.message or not update.message.text:
+        return
+
+    query = update.message.text.removeprefix("/timezone").strip()
+    current_tz: str | None = context.bot_data.get("user_timezone")
+
+    if not query:
+        tz_display = current_tz or "UTC (default)"
+        await update.message.reply_text(
+            f"Current timezone: {tz_display}\n\n"
+            "Usage: /timezone <city>\n"
+            "Example: /timezone Berlin"
+        )
+        return
+
+    matches = find_timezones(query=query)
+
+    if not matches:
+        await update.message.reply_text(
+            f'No timezone found for "{query}". Try a city name like Berlin, Tokyo, or New York.'
+        )
+        return
+
+    # Auto-select if single match or first match's city component equals query
+    normalized_query = query.lower().replace(" ", "_")
+    first_city = matches[0].rsplit("/", maxsplit=1)[-1].lower()
+    if len(matches) == 1 or first_city == normalized_query:
+        selected = matches[0]
+        context.bot_data["user_timezone"] = selected
+        save_timezone(timezone_file=settings.timezone_file, timezone=selected)
+        logger.info(f"Timezone set to {selected}")
+        await update.message.reply_text(f"Timezone set to {selected}")
+        return
+
+    # Multiple ambiguous matches \u2014 show top 10
+    shown = matches[:10]
+    lines = "\n".join(f"  {tz}" for tz in shown)
+    extra = f"\n  ... and {len(matches) - 10} more" if len(matches) > 10 else ""
+    await update.message.reply_text(
+        f'Multiple timezones match "{query}":\n{lines}{extra}\n\n'
+        "Please be more specific."
+    )
+
+
+@authorized
 async def handle_help_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Handle /help command — show available commands."""
-    settings: Settings = context.bot_data["settings"]
-
-    if not update.effective_user or not update.message:
-        return
-
-    if not check_authorized(
-        update.effective_user.id, allowed_user_id=settings.telegram_user_id
-    ):
-        await update.message.reply_text("This bot is private.")
+    if not update.message:
         return
 
     help_text = (
         "Available commands:\n\n"
-        "/help — show available commands\n"
-        "/remember <fact> — store a memory fact\n"
-        "/listmemory — list all stored memories\n"
-        "/forget <keyword or number> — remove memories matching keyword or by index\n\n"
+        "/help \u2014 show available commands\n"
+        "/timezone <city> \u2014 set timezone (fuzzy match)\n"
+        "/remember <fact> \u2014 store a memory fact\n"
+        "/listmemory \u2014 list all stored memories\n"
+        "/forget <keyword or number> \u2014 remove memories matching keyword or by index\n"
+        "/addcron <min> <hour> <day> <month> <weekday> <prompt> \u2014 add a recurring cron job\n"
+        "/schedule <datetime> | <prompt> \u2014 schedule a one-time task\n"
+        "/listcron \u2014 list all scheduled jobs\n"
+        "/removecron <number> \u2014 remove a scheduled job by number\n"
+        "/testcron <number> \u2014 immediately test a scheduled job\n\n"
         "Text, photo, and document messages are forwarded to Claude."
     )
     await update.message.reply_text(help_text)
