@@ -35,17 +35,79 @@ See [`.env.example`](.env.example) for all available options.
 uv run pyclaudius
 ```
 
+## MCP Tools
+
+pyclaudius runs an in-process MCP server that gives Claude direct tool access. A FastMCP HTTP server starts alongside the bot on `127.0.0.1` and Claude CLI connects to it via `--mcp-config`. This lets Claude call tools mid-conversation, see results, and reason over them.
+
+Tools are registered conditionally based on feature flags (`MEMORY_ENABLED`, `CRON_ENABLED`).
+
+### Available tools
+
+| Tool | Feature flag | Description |
+|------|-------------|-------------|
+| `remember_fact` | `MEMORY_ENABLED` | Remember an important fact about the user |
+| `forget_memory` | `MEMORY_ENABLED` | Forget memories matching a keyword or by index |
+| `list_memories` | `MEMORY_ENABLED` | List all stored memory facts |
+| `add_cron_job` | `CRON_ENABLED` | Add a recurring cron job (5-field cron expression) |
+| `schedule_once` | `CRON_ENABLED` | Schedule a one-time task at a specific datetime |
+| `remove_cron_job` | `CRON_ENABLED` | Remove a scheduled job by index |
+| `list_cron_jobs` | `CRON_ENABLED` | List all scheduled cron jobs |
+
+### Adding your own tools
+
+You can extend Claude with custom MCP tools by writing a plain Python function and registering it in `pyclaudius/mcp_tools/server.py`.
+
+**1. Create a new module** in `pyclaudius/mcp_tools/` with your functions:
+
+```python
+# pyclaudius/mcp_tools/uptime.py
+import datetime
+
+
+def get_bot_uptime(*, bot_data: dict) -> str:
+    """Return how long the bot has been running."""
+    started: datetime.datetime = bot_data["started_at"]
+    delta = datetime.datetime.now(tz=datetime.UTC) - started
+    hours, remainder = divmod(int(delta.total_seconds()), 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"Uptime: {hours}h {minutes}m {seconds}s"
+```
+
+Your functions can accept `bot_data` — a shared dict that holds `settings`, `memory`, `cron_jobs`, `scheduler`, and anything else stored on `app.bot_data` in `main.py`. This gives your tool full access to bot state and configuration.
+
+**2. Register it as an MCP tool** in `pyclaudius/mcp_tools/server.py` inside `create_mcp_server()`:
+
+```python
+from pyclaudius.mcp_tools import uptime
+
+@mcp.tool()
+async def get_bot_uptime() -> str:
+    """Return how long the bot has been running."""
+    return uptime.get_bot_uptime(bot_data=bot_data)
+```
+
+The `@mcp.tool()` decorator exposes the function to Claude via MCP. The docstring becomes the tool description that Claude sees. The `bot_data` dict is captured via closure from the enclosing `create_mcp_server()` function.
+
+You can also register tools conditionally based on feature flags:
+
+```python
+if settings.some_feature_enabled:
+    @mcp.tool()
+    async def my_tool() -> str:
+        ...
+```
+
+That's it. The tool is automatically discovered by Claude CLI, added to `--allowedTools` via the `mcp__pyclaudius__*` wildcard, and available in every conversation.
+
 ## Memory
 
-pyclaudius supports persistent memory across sessions. When enabled, Claude can remember and forget facts automatically by including tags in its responses (tags are stripped before the message is sent to you):
-
-- `[REMEMBER: user likes coffee]` — stores a fact
-- `[FORGET: coffee]` — removes matching facts
+pyclaudius supports persistent memory across sessions. When enabled, Claude can remember and forget facts using MCP tools (`remember_fact`, `forget_memory`).
 
 You can also manage memory manually with Telegram commands:
 
-- `/remember` — list all stored facts
-- `/forget <keyword>` — remove facts matching a keyword
+- `/remember <fact>` — store a fact
+- `/forget <keyword or number>` — remove facts matching a keyword or by index
+- `/listmemory` — list all stored facts
 
 Enable it via environment variables:
 
@@ -58,12 +120,7 @@ Memories are stored in `~/.pyclaudius-relay/memory.json` and injected into every
 
 ## Scheduled Tasks (Cron)
 
-pyclaudius supports recurring and one-time scheduled tasks. When enabled, Claude can create and manage jobs by including tags in its responses:
-
-- `[CRON_ADD: */30 * * * * | check the weather]` — recurring job (standard 5-field cron)
-- `[SCHEDULE: 2026-03-01 09:00 | remind me about the meeting]` — one-time job
-- `[CRON_REMOVE: 1]` — remove a job by number
-- `[CRON_LIST]` — list all scheduled jobs
+pyclaudius supports recurring and one-time scheduled tasks. When enabled, Claude can create and manage jobs using MCP tools (`add_cron_job`, `schedule_once`, `remove_cron_job`, `list_cron_jobs`).
 
 You can also manage jobs with Telegram commands:
 
@@ -83,7 +140,7 @@ Jobs are stored in `~/.pyclaudius-relay/cron.json` and survive restarts.
 
 ### Silent responses
 
-When a scheduled job fires, Claude is instructed to respond with `[SILENT]` if there is nothing noteworthy to report. This suppresses the Telegram notification, avoiding spam from routine checks. Memory and cron tags in a silent response are still processed normally.
+When a scheduled job fires, Claude is instructed to respond with `[SILENT]` if there is nothing noteworthy to report. This suppresses the Telegram notification, avoiding spam from routine checks.
 
 ## Timezone
 
@@ -102,6 +159,8 @@ By default, Claude CLI in print mode (`-p`) does not have permission to use tool
 ```bash
 ALLOWED_TOOLS=["WebSearch","WebFetch"]
 ```
+
+MCP tool names are automatically added to the allowed tools list.
 
 ## Auto-refresh authentication
 

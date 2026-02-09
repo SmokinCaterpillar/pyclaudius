@@ -1,6 +1,6 @@
 [project]
 name = "pyclaudius"
-version = "0.5.1"
+version = "0.7.0"
 description = "Simple telegram bot that calls claude in subprocess, inspired by https://github.com/godagoo/claude-telegram-relay"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -8,10 +8,11 @@ dependencies = [
     "python-telegram-bot==22.6",
     "pydantic-settings==2.12.0",
     "apscheduler==3.11.2",
+    "fastmcp==2.14.5",
 ]
 
 [project.scripts]
-pyclaudius = "pyclaudius.relay:main"
+pyclaudius = "pyclaudius.main:main"
 
 [dependency-groups]
 dev = ["pytest", "pytest-asyncio", "ruff", "mypy"]

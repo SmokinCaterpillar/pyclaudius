@@ -8,19 +8,10 @@ from telegram.ext import ContextTypes
 
 from pyclaudius.claude import call_claude
 from pyclaudius.config import Settings
-from pyclaudius.cron.handlers import process_cron_response
-from pyclaudius.cron.tags import has_silent_tag
-from pyclaudius.memory import (
-    add_memories,
-    extract_forget_tags,
-    extract_remember_tags,
-    format_memory_section,
-    remove_memories,
-    save_memory,
-    strip_remember_tags,
-)
+from pyclaudius.memory import format_memory_section
+from pyclaudius.operations import forget_memory, list_memories, remember_fact
 from pyclaudius.prompt import build_prompt
-from pyclaudius.response import split_response
+from pyclaudius.response import has_silent_tag, split_response
 from pyclaudius.session import save_session
 from pyclaudius.timezone import find_timezones, save_timezone
 from pyclaudius.tooling import authorized
@@ -42,50 +33,11 @@ def _get_cron_count(*, settings: Settings, cron_jobs: list[dict]) -> int | None:
     return None
 
 
-def _process_memory_response(
-    *, response: str, settings: Settings, context: ContextTypes.DEFAULT_TYPE
-) -> str:
-    """Extract REMEMBER/FORGET tags from response, update memory, return cleaned response."""
-    if not settings.memory_enabled:
-        return response
+def _get_allowed_tools(*, settings: Settings, bot_data: dict) -> list[str]:
+    """Combine user-configured allowed tools with MCP tool names."""
+    mcp_tools: list[str] = bot_data.get("mcp_allowed_tools", [])
+    return list(settings.allowed_tools) + mcp_tools
 
-    memory: list[str] = context.bot_data.get("memory", [])
-    changed = False
-
-    forget_keywords = extract_forget_tags(text=response)
-    if forget_keywords:
-        memory = remove_memories(existing=memory, keywords=forget_keywords)
-        changed = True
-        logger.info(f"Forgot memories matching: {forget_keywords}")
-
-    overflow_warning = ""
-    new_facts = extract_remember_tags(text=response)
-    if new_facts:
-        memory_before = list(memory)
-        unique_new = [
-            f for f in new_facts if f.lower() not in {m.lower() for m in memory}
-        ]
-        memory = add_memories(
-            existing=memory,
-            new=new_facts,
-            max_memories=settings.max_memories,
-        )
-        changed = True
-        logger.info(f"Stored {len(new_facts)} new memory fact(s), total: {len(memory)}")
-        overflow_count = len(memory_before) + len(unique_new) - settings.max_memories
-        if overflow_count > 0:
-            dropped = memory_before[:overflow_count]
-            dropped_list = ", ".join(f'"{d}"' for d in dropped)
-            overflow_warning = (
-                f"\n\n⚠ Memory full ({settings.max_memories}). "
-                f"Oldest fact(s) forgotten: {dropped_list}"
-            )
-
-    if changed:
-        context.bot_data["memory"] = memory
-        save_memory(memory_file=settings.memory_file, memories=memory)
-
-    return strip_remember_tags(text=response) + overflow_warning
 
 
 @authorized
@@ -125,7 +77,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 claude_path=settings.claude_path,
                 session_id=session.get("session_id"),
                 resume=True,
-                allowed_tools=settings.allowed_tools,
+                allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
                 cwd=str(settings.claude_work_dir),
                 auto_refresh_auth=settings.auto_refresh_auth,
             )
@@ -135,7 +87,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             claude_path=settings.claude_path,
             session_id=session.get("session_id"),
             resume=True,
-            allowed_tools=settings.allowed_tools,
+            allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
             cwd=str(settings.claude_work_dir),
             auto_refresh_auth=settings.auto_refresh_auth,
         )
@@ -145,13 +97,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     save_session(
         session_file=settings.session_file,
         session_id=session.get("session_id"),
-    )
-
-    response = _process_memory_response(
-        response=response, settings=settings, context=context
-    )
-    response = process_cron_response(
-        response=response, settings=settings, context=context
     )
 
     if is_scheduled and has_silent_tag(text=response):
@@ -203,7 +148,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 session_id=session.get("session_id"),
                 resume=True,
                 add_dirs=[str(settings.uploads_dir)],
-                allowed_tools=settings.allowed_tools,
+                allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
                 cwd=str(settings.claude_work_dir),
                 auto_refresh_auth=settings.auto_refresh_auth,
             )
@@ -214,7 +159,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             session_id=session.get("session_id"),
             resume=True,
             add_dirs=[str(settings.uploads_dir)],
-            allowed_tools=settings.allowed_tools,
+            allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
             cwd=str(settings.claude_work_dir),
             auto_refresh_auth=settings.auto_refresh_auth,
         )
@@ -226,12 +171,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         session_id=session.get("session_id"),
     )
 
-    response = _process_memory_response(
-        response=response, settings=settings, context=context
-    )
-    response = process_cron_response(
-        response=response, settings=settings, context=context
-    )
     for chunk in split_response(text=response):
         await update.message.reply_text(chunk)
 
@@ -279,7 +218,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 session_id=session.get("session_id"),
                 resume=True,
                 add_dirs=[str(settings.uploads_dir)],
-                allowed_tools=settings.allowed_tools,
+                allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
                 cwd=str(settings.claude_work_dir),
                 auto_refresh_auth=settings.auto_refresh_auth,
             )
@@ -290,7 +229,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             session_id=session.get("session_id"),
             resume=True,
             add_dirs=[str(settings.uploads_dir)],
-            allowed_tools=settings.allowed_tools,
+            allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
             cwd=str(settings.claude_work_dir),
             auto_refresh_auth=settings.auto_refresh_auth,
         )
@@ -302,12 +241,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         session_id=session.get("session_id"),
     )
 
-    response = _process_memory_response(
-        response=response, settings=settings, context=context
-    )
-    response = process_cron_response(
-        response=response, settings=settings, context=context
-    )
     for chunk in split_response(text=response):
         await update.message.reply_text(chunk)
 
@@ -334,22 +267,8 @@ async def handle_remember_command(
         await update.message.reply_text("Usage: /remember <fact>")
         return
 
-    memory_before: list[str] = context.bot_data.get("memory", [])
-    is_new = fact.lower() not in {f.lower() for f in memory_before}
-    memory = add_memories(
-        existing=memory_before,
-        new=[fact],
-        max_memories=settings.max_memories,
-    )
-    context.bot_data["memory"] = memory
-    save_memory(memory_file=settings.memory_file, memories=memory)
-    logger.info(f"Manually stored memory: {fact}")
-
-    reply = f'Remembered: "{fact}"'
-    if is_new and len(memory_before) >= settings.max_memories:
-        dropped = memory_before[0]
-        reply += f'\n\nWarning: memory full ({settings.max_memories}). Oldest fact forgotten: "{dropped}"'
-    await update.message.reply_text(reply)
+    result = remember_fact(fact=fact, bot_data=context.bot_data)
+    await update.message.reply_text(result)
 
 
 @authorized
@@ -371,35 +290,13 @@ async def handle_forget_command(
         await update.message.reply_text("Usage: /forget <keyword or number>")
         return
 
-    memory: list[str] = context.bot_data.get("memory", [])
-
-    # Index-based removal: /forget 3
-    if keyword.isdigit():
-        index = int(keyword)
-        if index < 1 or index > len(memory):
-            await update.message.reply_text(
-                f"Invalid index {index}. Use /listmemory to see valid numbers (1\u2013{len(memory)})."
-            )
-            return
-        removed_fact = memory.pop(index - 1)
-        context.bot_data["memory"] = memory
-        save_memory(memory_file=settings.memory_file, memories=memory)
-        await update.message.reply_text(f'Removed memory {index}: "{removed_fact}"')
+    try:
+        result = forget_memory(keyword=keyword, bot_data=context.bot_data)
+    except ValueError as e:
+        await update.message.reply_text(str(e))
         return
 
-    # Keyword-based removal
-    updated = remove_memories(existing=memory, keywords=[keyword])
-    removed_count = len(memory) - len(updated)
-
-    if removed_count == 0:
-        await update.message.reply_text(f'No memories matching "{keyword}".')
-        return
-
-    context.bot_data["memory"] = updated
-    save_memory(memory_file=settings.memory_file, memories=updated)
-    await update.message.reply_text(
-        f'Removed {removed_count} memory/memories matching "{keyword}".'
-    )
+    await update.message.reply_text(result)
 
 
 @authorized
@@ -416,13 +313,8 @@ async def handle_listmemory_command(
         await update.message.reply_text("Memory is disabled.")
         return
 
-    memory: list[str] = context.bot_data.get("memory", [])
-    if not memory:
-        await update.message.reply_text("No memories stored.")
-        return
-
-    lines = "\n".join(f"{i + 1}. {fact}" for i, fact in enumerate(memory))
-    await update.message.reply_text(f"Stored memories ({len(memory)}):\n\n{lines}")
+    result = list_memories(bot_data=context.bot_data)
+    await update.message.reply_text(result)
 
 
 @authorized
@@ -466,7 +358,7 @@ async def handle_timezone_command(
         await update.message.reply_text(f"Timezone set to {selected}")
         return
 
-    # Multiple ambiguous matches \u2014 show top 10
+    # Multiple ambiguous matches — show top 10
     shown = matches[:10]
     lines = "\n".join(f"  {tz}" for tz in shown)
     extra = f"\n  ... and {len(matches) - 10} more" if len(matches) > 10 else ""

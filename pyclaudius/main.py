@@ -37,6 +37,12 @@ from pyclaudius.handlers import (
     handle_timezone_command,
 )
 from pyclaudius.lockfile import acquire_lock, release_lock, setup_signal_handlers
+from pyclaudius.mcp_tools.config import (
+    find_free_port,
+    register_mcp_server,
+    unregister_mcp_server,
+)
+from pyclaudius.mcp_tools.server import create_mcp_server, get_allowed_tools_wildcard
 from pyclaudius.memory import load_memory
 from pyclaudius.session import load_session
 from pyclaudius.timezone import load_timezone
@@ -50,19 +56,56 @@ logger = logging.getLogger(__name__)
 
 
 async def _post_init(application: Application) -> None:
-    """Start the scheduler after the event loop is running."""
+    """Start the scheduler and MCP server after the event loop is running."""
     scheduler = application.bot_data.get("scheduler")
     if scheduler is not None:
         scheduler.start()
         logger.info("APScheduler started")
 
+    mcp_server = application.bot_data.get("mcp_server")
+    if mcp_server is not None:
+        mcp_port = application.bot_data["mcp_port"]
+        task = asyncio.create_task(
+            mcp_server.run_http_async(
+                host="127.0.0.1",
+                port=mcp_port,
+                show_banner=False,
+            )
+        )
+        application.bot_data["mcp_task"] = task
+        logger.info(f"MCP server started on 127.0.0.1:{mcp_port}")
+
+        # Register with Claude CLI (workaround for --mcp-config hang bug).
+        # Unregister first to clear any stale entry from a previous run.
+        settings = application.bot_data["settings"]
+        work_dir = str(settings.claude_work_dir)
+        await unregister_mcp_server(claude_path=settings.claude_path, cwd=work_dir)
+        registered = await register_mcp_server(
+            claude_path=settings.claude_path, port=mcp_port, cwd=work_dir
+        )
+        if registered:
+            logger.info("Registered MCP server with Claude CLI")
+        else:
+            logger.error("Failed to register MCP server with Claude CLI")
+
 
 async def _post_shutdown(application: Application) -> None:
-    """Shut down the scheduler gracefully."""
+    """Shut down the scheduler and MCP server gracefully."""
     scheduler = application.bot_data.get("scheduler")
     if scheduler is not None:
         scheduler.shutdown(wait=False)
         logger.info("APScheduler shut down")
+
+    mcp_task: asyncio.Task | None = application.bot_data.get("mcp_task")
+    if mcp_task is not None:
+        mcp_task.cancel()
+        logger.info("MCP server shut down")
+
+    settings = application.bot_data["settings"]
+    await unregister_mcp_server(
+        claude_path=settings.claude_path, cwd=str(settings.claude_work_dir)
+    )
+    logger.info("Unregistered MCP server from Claude CLI")
 
 
 def main() -> None:
@@ -94,16 +137,16 @@ def main() -> None:
         app.bot_data["memory"] = []
         logger.info("Memory disabled")
 
-    app.bot_data["user_timezone"] = load_timezone(
-        timezone_file=settings.timezone_file
-    )
+    app.bot_data["user_timezone"] = load_timezone(timezone_file=settings.timezone_file)
     logger.info(f"User timezone: {app.bot_data['user_timezone'] or 'UTC (default)'}")
+
+    # claude_lock is always created (MCP tools may mutate shared state)
+    app.bot_data["claude_lock"] = asyncio.Lock()
 
     # Cron / scheduling setup
     if settings.cron_enabled:
         scheduler = create_scheduler()
         app.bot_data["scheduler"] = scheduler
-        app.bot_data["claude_lock"] = asyncio.Lock()
 
         cron_jobs = load_cron_jobs(cron_file=settings.cron_file)
 
@@ -146,6 +189,14 @@ def main() -> None:
     else:
         app.bot_data["cron_jobs"] = []
         logger.info("Cron disabled")
+
+    # MCP server setup (always on — registered with Claude CLI in _post_init)
+    mcp_port = find_free_port()
+    mcp_server = create_mcp_server(bot_data=app.bot_data)
+    app.bot_data["mcp_server"] = mcp_server
+    app.bot_data["mcp_port"] = mcp_port
+    app.bot_data["mcp_allowed_tools"] = [get_allowed_tools_wildcard()]
+    logger.info(f"MCP enabled on port {mcp_port}")
 
     app.add_handler(CommandHandler("help", handle_help_command))
     app.add_handler(CommandHandler("timezone", handle_timezone_command))

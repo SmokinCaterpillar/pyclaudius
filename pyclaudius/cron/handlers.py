@@ -1,28 +1,16 @@
 import logging
-import uuid
-from datetime import UTC, datetime
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from pyclaudius.config import Settings
 from pyclaudius.cron.models import ScheduledJob
-from pyclaudius.cron.scheduler import (
-    execute_scheduled_job,
-    parse_schedule_datetime,
-    register_job,
-    unregister_job,
-    validate_cron_expression,
-)
-from pyclaudius.cron.store import format_cron_list, save_cron_jobs
-from pyclaudius.cron.tags import (
-    extract_cron_add_tags,
-    extract_cron_remove_tags,
-    extract_schedule_tags,
-    has_cron_list_tag,
-    parse_cron_add_value,
-    parse_schedule_value,
-    strip_cron_tags,
+from pyclaudius.cron.scheduler import execute_scheduled_job
+from pyclaudius.operations import (
+    add_cron_job,
+    list_cron_jobs,
+    remove_cron_job,
+    schedule_once,
 )
 from pyclaudius.tooling import authorized
 
@@ -55,43 +43,15 @@ async def handle_addcron_command(
     expression = " ".join(parts[:5])
     prompt_text = parts[5]
 
-    if not validate_cron_expression(expression=expression):
-        await update.message.reply_text(f"Invalid cron expression: {expression}")
+    try:
+        result = add_cron_job(
+            expression=expression, prompt_text=prompt_text, bot_data=context.bot_data
+        )
+    except ValueError as e:
+        await update.message.reply_text(str(e))
         return
 
-    user_tz: str | None = context.bot_data.get("user_timezone")
-    job: ScheduledJob = {
-        "id": str(uuid.uuid4()),
-        "job_type": "cron",
-        "expression": expression,
-        "prompt": prompt_text,
-        "created_at": datetime.now(tz=UTC).isoformat(),
-    }
-    if user_tz is not None:
-        job["timezone"] = user_tz
-
-    cron_jobs: list[ScheduledJob] = context.bot_data.get("cron_jobs", [])
-    cron_jobs.append(job)
-    context.bot_data["cron_jobs"] = cron_jobs
-    save_cron_jobs(cron_file=settings.cron_file, jobs=cron_jobs)
-
-    scheduler = context.bot_data["scheduler"]
-    application = context.bot_data["application"]
-    register_job(
-        scheduler=scheduler,
-        job=job,
-        callback=execute_scheduled_job,
-        callback_kwargs={
-            "application": application,
-            "chat_id": settings.telegram_user_id,
-            "prompt_text": prompt_text,
-            "job_id": job["id"],
-            "job_type": "cron",
-        },
-    )
-
-    await update.message.reply_text(f"Cron job added: {expression} — {prompt_text}")
-    logger.info(f"Added cron job {job['id']}: {expression} — {prompt_text[:50]}")
+    await update.message.reply_text(result)
 
 
 @authorized
@@ -127,55 +87,17 @@ async def handle_schedule_command(
         )
         return
 
-    user_tz: str | None = context.bot_data.get("user_timezone")
-    dt = parse_schedule_datetime(text=datetime_str, timezone=user_tz)
-    if dt is None:
-        await update.message.reply_text(
-            f"Invalid datetime: {datetime_str}\n"
-            "Supported formats: YYYY-MM-DD HH:MM, YYYY-MM-DDTHH:MM:SS"
+    try:
+        result = schedule_once(
+            datetime_str=datetime_str,
+            prompt_text=prompt_text,
+            bot_data=context.bot_data,
         )
+    except ValueError as e:
+        await update.message.reply_text(str(e))
         return
 
-    if dt <= datetime.now(tz=UTC):
-        await update.message.reply_text("Datetime must be in the future.")
-        return
-
-    job: ScheduledJob = {
-        "id": str(uuid.uuid4()),
-        "job_type": "once",
-        "expression": datetime_str,
-        "prompt": prompt_text,
-        "created_at": datetime.now(tz=UTC).isoformat(),
-    }
-    if user_tz is not None:
-        job["timezone"] = user_tz
-
-    cron_jobs: list[ScheduledJob] = context.bot_data.get("cron_jobs", [])
-    cron_jobs.append(job)
-    context.bot_data["cron_jobs"] = cron_jobs
-    save_cron_jobs(cron_file=settings.cron_file, jobs=cron_jobs)
-
-    scheduler = context.bot_data["scheduler"]
-    application = context.bot_data["application"]
-    register_job(
-        scheduler=scheduler,
-        job=job,
-        callback=execute_scheduled_job,
-        callback_kwargs={
-            "application": application,
-            "chat_id": settings.telegram_user_id,
-            "prompt_text": prompt_text,
-            "job_id": job["id"],
-            "job_type": "once",
-        },
-    )
-
-    await update.message.reply_text(
-        f"Scheduled one-time task: {datetime_str} — {prompt_text}"
-    )
-    logger.info(
-        f"Scheduled one-time job {job['id']}: {datetime_str} — {prompt_text[:50]}"
-    )
+    await update.message.reply_text(result)
 
 
 @authorized
@@ -198,26 +120,14 @@ async def handle_removecron_command(
         return
 
     index = int(text)
-    cron_jobs: list[ScheduledJob] = context.bot_data.get("cron_jobs", [])
 
-    if index < 1 or index > len(cron_jobs):
-        await update.message.reply_text(
-            f"Invalid index {index}. Use /listcron to see valid numbers (1\u2013{len(cron_jobs)})."
-        )
+    try:
+        result = remove_cron_job(index=index, bot_data=context.bot_data)
+    except ValueError as e:
+        await update.message.reply_text(str(e))
         return
 
-    removed = cron_jobs.pop(index - 1)
-    context.bot_data["cron_jobs"] = cron_jobs
-    save_cron_jobs(cron_file=settings.cron_file, jobs=cron_jobs)
-
-    scheduler = context.bot_data["scheduler"]
-    unregister_job(scheduler=scheduler, job_id=removed["id"])
-
-    label = "[CRON]" if removed["job_type"] == "cron" else "[ONCE]"
-    await update.message.reply_text(
-        f"Removed job {index}: {label} {removed['expression']} \u2014 {removed['prompt']}"
-    )
-    logger.info(f"Removed job {removed['id']}: {removed['prompt'][:50]}")
+    await update.message.reply_text(result)
 
 
 @authorized
@@ -280,113 +190,5 @@ async def handle_listcron_command(
         await update.message.reply_text("Cron scheduling is disabled.")
         return
 
-    cron_jobs: list[ScheduledJob] = context.bot_data.get("cron_jobs", [])
-    user_tz: str | None = context.bot_data.get("user_timezone")
-    text = format_cron_list(jobs=cron_jobs, display_timezone=user_tz)
+    text = list_cron_jobs(bot_data=context.bot_data)
     await update.message.reply_text(text)
-
-
-def process_cron_response(
-    *, response: str, settings: Settings, context: ContextTypes.DEFAULT_TYPE
-) -> str:
-    """Extract cron tags from response, update jobs, return cleaned response."""
-    if not settings.cron_enabled:
-        return response
-
-    cron_jobs: list[ScheduledJob] = context.bot_data.get("cron_jobs", [])
-    scheduler = context.bot_data["scheduler"]
-    application = context.bot_data["application"]
-    user_tz: str | None = context.bot_data.get("user_timezone")
-    changed = False
-
-    # Process CRON_ADD tags
-    for raw_value in extract_cron_add_tags(text=response):
-        parsed = parse_cron_add_value(value=raw_value)
-        if parsed is None:
-            continue
-        expression, prompt_text = parsed
-        if not validate_cron_expression(expression=expression):
-            continue
-        job: ScheduledJob = {
-            "id": str(uuid.uuid4()),
-            "job_type": "cron",
-            "expression": expression,
-            "prompt": prompt_text,
-            "created_at": datetime.now(tz=UTC).isoformat(),
-        }
-        if user_tz is not None:
-            job["timezone"] = user_tz
-        cron_jobs.append(job)
-        register_job(
-            scheduler=scheduler,
-            job=job,
-            callback=execute_scheduled_job,
-            callback_kwargs={
-                "application": application,
-                "chat_id": settings.telegram_user_id,
-                "prompt_text": prompt_text,
-                "job_id": job["id"],
-                "job_type": "cron",
-            },
-        )
-        changed = True
-        logger.info(
-            f"LLM added cron job {job['id']}: {expression} — {prompt_text[:50]}"
-        )
-
-    # Process SCHEDULE tags
-    for raw_value in extract_schedule_tags(text=response):
-        parsed = parse_schedule_value(value=raw_value)
-        if parsed is None:
-            continue
-        datetime_str, prompt_text = parsed
-        dt = parse_schedule_datetime(text=datetime_str, timezone=user_tz)
-        if dt is None or dt <= datetime.now(tz=UTC):
-            continue
-        job = {
-            "id": str(uuid.uuid4()),
-            "job_type": "once",
-            "expression": datetime_str,
-            "prompt": prompt_text,
-            "created_at": datetime.now(tz=UTC).isoformat(),
-        }
-        if user_tz is not None:
-            job["timezone"] = user_tz
-        cron_jobs.append(job)
-        register_job(
-            scheduler=scheduler,
-            job=job,
-            callback=execute_scheduled_job,
-            callback_kwargs={
-                "application": application,
-                "chat_id": settings.telegram_user_id,
-                "prompt_text": prompt_text,
-                "job_id": job["id"],
-                "job_type": "once",
-            },
-        )
-        changed = True
-        logger.info(
-            f"LLM scheduled one-time job {job['id']}: {datetime_str} — {prompt_text[:50]}"
-        )
-
-    # Process CRON_REMOVE tags (sort descending to remove from end first)
-    remove_indices = sorted(extract_cron_remove_tags(text=response), reverse=True)
-    for index in remove_indices:
-        if 1 <= index <= len(cron_jobs):
-            removed = cron_jobs.pop(index - 1)
-            unregister_job(scheduler=scheduler, job_id=removed["id"])
-            changed = True
-            logger.info(f"LLM removed job {removed['id']}: {removed['prompt'][:50]}")
-
-    if changed:
-        context.bot_data["cron_jobs"] = cron_jobs
-        save_cron_jobs(cron_file=settings.cron_file, jobs=cron_jobs)
-
-    # Append list if requested
-    cleaned = strip_cron_tags(text=response)
-    if has_cron_list_tag(text=response):
-        job_list = format_cron_list(jobs=cron_jobs, display_timezone=user_tz)
-        cleaned = f"{cleaned}\n\n{job_list}"
-
-    return cleaned

@@ -8,7 +8,6 @@ from pyclaudius.cron.handlers import (
     handle_removecron_command,
     handle_schedule_command,
     handle_testcron_command,
-    process_cron_response,
 )
 
 
@@ -265,119 +264,6 @@ async def test_listcron_with_jobs(tmp_path):
     reply = update.message.reply_text.call_args[0][0]
     assert "[CRON]" in reply
     assert "[ONCE]" in reply
-
-
-# --- process_cron_response ---
-
-
-def test_process_cron_response_disabled(tmp_path):
-    context = _make_context(tmp_path, cron_enabled=False)
-    result = process_cron_response(
-        response="test [CRON_ADD: */5 * * * * | check]",
-        settings=context.bot_data["settings"],
-        context=context,
-    )
-    assert result == "test [CRON_ADD: */5 * * * * | check]"
-
-
-def test_process_cron_response_cron_add(tmp_path):
-    context = _make_context(tmp_path)
-    result = process_cron_response(
-        response="Done [CRON_ADD: */5 * * * * | check weather]",
-        settings=context.bot_data["settings"],
-        context=context,
-    )
-    assert "[CRON_ADD" not in result
-    assert "Done" in result
-    assert len(context.bot_data["cron_jobs"]) == 1
-    assert context.bot_data["cron_jobs"][0]["job_type"] == "cron"
-
-
-def test_process_cron_response_schedule(tmp_path):
-    context = _make_context(tmp_path)
-    result = process_cron_response(
-        response="OK [SCHEDULE: 2030-12-31 23:59 | new year]",
-        settings=context.bot_data["settings"],
-        context=context,
-    )
-    assert "[SCHEDULE" not in result
-    assert len(context.bot_data["cron_jobs"]) == 1
-    assert context.bot_data["cron_jobs"][0]["job_type"] == "once"
-
-
-def test_process_cron_response_cron_remove(tmp_path):
-    context = _make_context(tmp_path)
-    context.bot_data["cron_jobs"] = [
-        {
-            "id": "abc",
-            "job_type": "cron",
-            "expression": "*/5 * * * *",
-            "prompt": "test",
-            "created_at": "2026-01-01T00:00:00",
-        }
-    ]
-    result = process_cron_response(
-        response="Removed [CRON_REMOVE: 1]",
-        settings=context.bot_data["settings"],
-        context=context,
-    )
-    assert "[CRON_REMOVE" not in result
-    assert len(context.bot_data["cron_jobs"]) == 0
-    context.bot_data["scheduler"].remove_job.assert_called_once_with("abc")
-
-
-def test_process_cron_response_cron_list(tmp_path):
-    context = _make_context(tmp_path)
-    context.bot_data["cron_jobs"] = [
-        {
-            "id": "a",
-            "job_type": "cron",
-            "expression": "*/5 * * * *",
-            "prompt": "check weather",
-            "created_at": "2026-01-01T00:00:00",
-        }
-    ]
-    result = process_cron_response(
-        response="Here are your jobs [CRON_LIST]",
-        settings=context.bot_data["settings"],
-        context=context,
-    )
-    assert "[CRON_LIST]" not in result
-    assert "[CRON]" in result
-    assert "check weather" in result
-
-
-def test_process_cron_response_strips_all_tags(tmp_path):
-    context = _make_context(tmp_path)
-    result = process_cron_response(
-        response="Hello [CRON_ADD: */5 * * * * | test] [CRON_LIST] bye",
-        settings=context.bot_data["settings"],
-        context=context,
-    )
-    assert "[CRON_ADD" not in result
-    assert "[CRON_LIST]" not in result
-    assert "Hello" in result
-    assert "bye" in result
-
-
-def test_process_cron_response_invalid_cron_add_ignored(tmp_path):
-    context = _make_context(tmp_path)
-    process_cron_response(
-        response="Done [CRON_ADD: bad expression | test]",
-        settings=context.bot_data["settings"],
-        context=context,
-    )
-    assert len(context.bot_data["cron_jobs"]) == 0
-
-
-def test_process_cron_response_past_schedule_ignored(tmp_path):
-    context = _make_context(tmp_path)
-    process_cron_response(
-        response="Done [SCHEDULE: 2020-01-01 00:00 | old task]",
-        settings=context.bot_data["settings"],
-        context=context,
-    )
-    assert len(context.bot_data["cron_jobs"]) == 0
 
 
 # --- handle_testcron_command ---
