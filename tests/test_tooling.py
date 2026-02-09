@@ -1,8 +1,8 @@
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from pyclaudius.tooling import authorized, check_authorized
+from pyclaudius.tooling import authorized, check_authorized, is_auth_error, refresh_auth
 
 
 def test_check_authorized_match():
@@ -92,3 +92,74 @@ async def test_authorized_decorator_preserves_function_name():
         pass
 
     assert my_handler.__name__ == "my_handler"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'Error: {"type":"error","error":{"type":"authentication_error"}}',
+        "OAuth token has expired. Please re-authenticate.",
+        "API Error: 401 Unauthorized",
+    ],
+)
+def test_is_auth_error_matches(text: str):
+    assert is_auth_error(response=text) is True
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Hello from Claude",
+        "Error: something went wrong",
+        "API Error: 500 Internal Server Error",
+    ],
+)
+def test_is_auth_error_no_match(text: str):
+    assert is_auth_error(response=text) is False
+
+
+@pytest.mark.asyncio
+async def test_refresh_auth_success():
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.communicate.return_value = (b"", b"")
+    with patch(
+        "pyclaudius.tooling.asyncio.create_subprocess_exec",
+        return_value=proc,
+    ) as mock_exec:
+        result = await refresh_auth(claude_path="/usr/bin/claude")
+        assert result is True
+        mock_exec.assert_called_once()
+        assert mock_exec.call_args[0] == ("/usr/bin/claude",)
+        proc.communicate.assert_called_once_with(input=b"/exit\n")
+
+
+@pytest.mark.asyncio
+async def test_refresh_auth_failure():
+    proc = AsyncMock()
+    proc.returncode = 1
+    proc.communicate.return_value = (b"", b"error")
+    with patch(
+        "pyclaudius.tooling.asyncio.create_subprocess_exec",
+        return_value=proc,
+    ):
+        result = await refresh_auth(claude_path="claude")
+        assert result is False
+
+
+@pytest.mark.asyncio
+async def test_refresh_auth_timeout():
+    proc = AsyncMock()
+    proc.communicate.return_value = (b"", b"")
+    with (
+        patch(
+            "pyclaudius.tooling.asyncio.create_subprocess_exec",
+            return_value=proc,
+        ),
+        patch(
+            "pyclaudius.tooling.asyncio.wait_for",
+            side_effect=TimeoutError,
+        ),
+    ):
+        result = await refresh_auth(claude_path="claude")
+        assert result is False

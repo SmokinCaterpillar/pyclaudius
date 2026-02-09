@@ -3,6 +3,8 @@ import logging
 import os
 import uuid
 
+from pyclaudius.tooling import with_auth_retry
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,6 +24,7 @@ def _build_subprocess_env() -> dict[str, str]:
     return env
 
 
+@with_auth_retry
 async def call_claude(
     *,
     prompt: str,
