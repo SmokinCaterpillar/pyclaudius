@@ -14,11 +14,12 @@ def find_free_port() -> int:
         return sock.getsockname()[1]
 
 
-async def register_mcp_server(*, claude_path: str, port: int) -> bool:
+async def register_mcp_server(*, claude_path: str, port: int, cwd: str) -> bool:
     """Register the MCP server with Claude CLI via ``claude mcp add``.
 
-    Uses ``--scope user`` so the server is available in all sessions.
-    Overwrites any existing entry with the same name.
+    Uses ``--scope project`` so the config is written to the project
+    directory (the same *cwd* that ``call_claude`` uses), avoiding
+    write issues with a read-only home directory (e.g. systemd services).
     """
     proc = await asyncio.create_subprocess_exec(
         claude_path,
@@ -27,11 +28,12 @@ async def register_mcp_server(*, claude_path: str, port: int) -> bool:
         "--transport",
         "http",
         "--scope",
-        "user",
+        "project",
         MCP_SERVER_NAME,
         f"http://127.0.0.1:{port}/mcp",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        cwd=cwd,
     )
     _stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
@@ -39,17 +41,18 @@ async def register_mcp_server(*, claude_path: str, port: int) -> bool:
     return proc.returncode == 0
 
 
-async def unregister_mcp_server(*, claude_path: str) -> bool:
+async def unregister_mcp_server(*, claude_path: str, cwd: str) -> bool:
     """Remove the MCP server from Claude CLI config."""
     proc = await asyncio.create_subprocess_exec(
         claude_path,
         "mcp",
         "remove",
         "--scope",
-        "user",
+        "project",
         MCP_SERVER_NAME,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        cwd=cwd,
     )
     _stdout, stderr = await proc.communicate()
     if proc.returncode != 0:

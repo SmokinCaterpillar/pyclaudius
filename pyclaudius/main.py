@@ -78,9 +78,10 @@ async def _post_init(application: Application) -> None:
         # Register with Claude CLI (workaround for --mcp-config hang bug).
         # Unregister first to clear any stale entry from a previous run.
         settings = application.bot_data["settings"]
-        await unregister_mcp_server(claude_path=settings.claude_path)
+        work_dir = str(settings.claude_work_dir)
+        await unregister_mcp_server(claude_path=settings.claude_path, cwd=work_dir)
         registered = await register_mcp_server(
-            claude_path=settings.claude_path, port=mcp_port
+            claude_path=settings.claude_path, port=mcp_port, cwd=work_dir
         )
         if registered:
             logger.info("Registered MCP server with Claude CLI")
@@ -101,7 +102,9 @@ async def _post_shutdown(application: Application) -> None:
         logger.info("MCP server shut down")
 
     settings = application.bot_data["settings"]
-    await unregister_mcp_server(claude_path=settings.claude_path)
+    await unregister_mcp_server(
+        claude_path=settings.claude_path, cwd=str(settings.claude_work_dir)
+    )
     logger.info("Unregistered MCP server from Claude CLI")
 
 

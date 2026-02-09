@@ -38,7 +38,7 @@ async def test_register_mcp_server_success():
         "pyclaudius.mcp_tools.config.asyncio.create_subprocess_exec",
         return_value=mock_proc,
     ) as mock_exec:
-        result = await register_mcp_server(claude_path="claude", port=12345)
+        result = await register_mcp_server(claude_path="claude", port=12345, cwd="/tmp")
         assert result is True
         args = mock_exec.call_args[0]
         assert "mcp" in args
@@ -57,7 +57,7 @@ async def test_register_mcp_server_failure():
         "pyclaudius.mcp_tools.config.asyncio.create_subprocess_exec",
         return_value=mock_proc,
     ):
-        result = await register_mcp_server(claude_path="claude", port=12345)
+        result = await register_mcp_server(claude_path="claude", port=12345, cwd="/tmp")
         assert result is False
 
 
@@ -70,7 +70,7 @@ async def test_unregister_mcp_server_success():
         "pyclaudius.mcp_tools.config.asyncio.create_subprocess_exec",
         return_value=mock_proc,
     ) as mock_exec:
-        result = await unregister_mcp_server(claude_path="claude")
+        result = await unregister_mcp_server(claude_path="claude", cwd="/tmp")
         assert result is True
         args = mock_exec.call_args[0]
         assert "mcp" in args
@@ -87,5 +87,5 @@ async def test_unregister_mcp_server_failure():
         "pyclaudius.mcp_tools.config.asyncio.create_subprocess_exec",
         return_value=mock_proc,
     ):
-        result = await unregister_mcp_server(claude_path="claude")
+        result = await unregister_mcp_server(claude_path="claude", cwd="/tmp")
         assert result is False
