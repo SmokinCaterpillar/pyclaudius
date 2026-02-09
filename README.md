@@ -57,14 +57,15 @@ Tools are registered conditionally based on feature flags (`MEMORY_ENABLED`, `CR
 
 You can extend Claude with custom MCP tools by writing a plain Python function and registering it in `pyclaudius/mcp_tools/server.py`.
 
-**1. Write your function** in a module (e.g. `pyclaudius/operations.py` or a new file):
+**1. Create a new module** in `pyclaudius/mcp_tools/` with your functions:
 
 ```python
-# pyclaudius/operations.py
+# pyclaudius/mcp_tools/uptime.py
+import datetime
+
 
 def get_bot_uptime(*, bot_data: dict) -> str:
     """Return how long the bot has been running."""
-    import datetime
     started: datetime.datetime = bot_data["started_at"]
     delta = datetime.datetime.now(tz=datetime.UTC) - started
     hours, remainder = divmod(int(delta.total_seconds()), 3600)
@@ -72,15 +73,17 @@ def get_bot_uptime(*, bot_data: dict) -> str:
     return f"Uptime: {hours}h {minutes}m {seconds}s"
 ```
 
-Every function receives `bot_data` — a shared dict that holds `settings`, `memory`, `cron_jobs`, `scheduler`, and anything else you store on `app.bot_data` in `main.py`. This gives your tool full access to bot state and configuration.
+Your functions can accept `bot_data` — a shared dict that holds `settings`, `memory`, `cron_jobs`, `scheduler`, and anything else stored on `app.bot_data` in `main.py`. This gives your tool full access to bot state and configuration.
 
 **2. Register it as an MCP tool** in `pyclaudius/mcp_tools/server.py` inside `create_mcp_server()`:
 
 ```python
+from pyclaudius.mcp_tools import uptime
+
 @mcp.tool()
 async def get_bot_uptime() -> str:
     """Return how long the bot has been running."""
-    return operations.get_bot_uptime(bot_data=bot_data)
+    return uptime.get_bot_uptime(bot_data=bot_data)
 ```
 
 The `@mcp.tool()` decorator exposes the function to Claude via MCP. The docstring becomes the tool description that Claude sees. The `bot_data` dict is captured via closure from the enclosing `create_mcp_server()` function.
