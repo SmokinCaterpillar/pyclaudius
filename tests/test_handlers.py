@@ -35,6 +35,7 @@ def _make_context(
             claude_work_dir=tmp_path / "claude-work",
             cron_enabled=cron_enabled,
             cron_file=tmp_path / "cron.json",
+            auto_refresh_auth=False,
         ),
         "session": {"session_id": None, "last_activity": ""},
         "memory": [],
@@ -183,72 +184,6 @@ async def test_handle_text_memory_not_injected_when_disabled(tmp_path):
         await handle_text(update, context)
         prompt_arg = mock_claude.call_args.kwargs["prompt"]
         assert "## Memory" not in prompt_arg
-
-
-@pytest.mark.asyncio
-async def test_handle_text_remember_tags_extracted_and_stored(tmp_path):
-    update = _make_update(text="hello")
-    context = _make_context(tmp_path, memory_enabled=True)
-    with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Got it [REMEMBER: user likes tea]", None)
-        await handle_text(update, context)
-        assert "user likes tea" in context.bot_data["memory"]
-
-
-@pytest.mark.asyncio
-async def test_handle_text_remember_tags_stripped_from_response(tmp_path):
-    update = _make_update(text="hello")
-    context = _make_context(tmp_path, memory_enabled=True)
-    with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Got it [REMEMBER: user likes tea] bye", None)
-        await handle_text(update, context)
-        update.message.reply_text.assert_called_once_with("Got it  bye")
-
-
-@pytest.mark.asyncio
-async def test_handle_text_remember_tags_not_processed_when_disabled(tmp_path):
-    update = _make_update(text="hello")
-    context = _make_context(tmp_path, memory_enabled=False)
-    with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Got it [REMEMBER: user likes tea]", None)
-        await handle_text(update, context)
-        assert context.bot_data["memory"] == []
-        update.message.reply_text.assert_called_once_with(
-            "Got it [REMEMBER: user likes tea]"
-        )
-
-
-@pytest.mark.asyncio
-async def test_handle_text_forget_tags_remove_memories(tmp_path):
-    update = _make_update(text="I no longer like coffee")
-    context = _make_context(tmp_path, memory_enabled=True)
-    context.bot_data["memory"] = ["user likes coffee", "user likes tea"]
-    with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("OK [FORGET: coffee] noted", None)
-        await handle_text(update, context)
-        assert "user likes coffee" not in context.bot_data["memory"]
-        assert "user likes tea" in context.bot_data["memory"]
-
-
-@pytest.mark.asyncio
-async def test_handle_text_forget_tags_stripped_from_response(tmp_path):
-    update = _make_update(text="forget coffee")
-    context = _make_context(tmp_path, memory_enabled=True)
-    context.bot_data["memory"] = ["user likes coffee"]
-    with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Done [FORGET: coffee] bye", None)
-        await handle_text(update, context)
-        update.message.reply_text.assert_called_once_with("Done  bye")
 
 
 @pytest.mark.asyncio
@@ -431,149 +366,6 @@ async def test_handle_remember_command_no_warning_under_max(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_process_memory_response_warns_on_overflow(tmp_path):
-    update = _make_update(text="hello")
-    context = _make_context(tmp_path, memory_enabled=True, max_memories=2)
-    context.bot_data["memory"] = ["likes coffee", "likes tea"]
-    with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Got it [REMEMBER: likes water]", None)
-        await handle_text(update, context)
-        reply = update.message.reply_text.call_args[0][0]
-        assert "Memory full (2)" in reply
-        assert 'Oldest fact(s) forgotten: "likes coffee"' in reply
-
-
-@pytest.mark.asyncio
-async def test_process_memory_response_no_warning_under_max(tmp_path):
-    update = _make_update(text="hello")
-    context = _make_context(tmp_path, memory_enabled=True, max_memories=10)
-    context.bot_data["memory"] = ["likes coffee"]
-    with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Got it [REMEMBER: likes water]", None)
-        await handle_text(update, context)
-        reply = update.message.reply_text.call_args[0][0]
-        assert "Got it" in reply
-        assert "Memory full" not in reply
-
-
-@pytest.mark.asyncio
-async def test_process_memory_response_warns_multiple_evictions(tmp_path):
-    update = _make_update(text="hello")
-    context = _make_context(tmp_path, memory_enabled=True, max_memories=2)
-    context.bot_data["memory"] = ["likes coffee", "likes tea"]
-    with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = (
-            "OK [REMEMBER: likes water] [REMEMBER: likes juice]",
-            None,
-        )
-        await handle_text(update, context)
-        reply = update.message.reply_text.call_args[0][0]
-        assert "Memory full (2)" in reply
-        assert '"likes coffee"' in reply
-        assert '"likes tea"' in reply
-        assert context.bot_data["memory"] == ["likes water", "likes juice"]
-
-
-@pytest.mark.asyncio
-async def test_handle_text_cron_add_tag_processed(tmp_path):
-    update = _make_update(text="schedule something")
-    context = _make_context(tmp_path, cron_enabled=True)
-    with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = (
-            "Done [CRON_ADD: */5 * * * * | check weather]",
-            None,
-        )
-        await handle_text(update, context)
-        assert len(context.bot_data["cron_jobs"]) == 1
-        assert context.bot_data["cron_jobs"][0]["job_type"] == "cron"
-
-
-@pytest.mark.asyncio
-async def test_handle_text_cron_list_tag_appends_list(tmp_path):
-    update = _make_update(text="list my jobs")
-    context = _make_context(tmp_path, cron_enabled=True)
-    context.bot_data["cron_jobs"] = [
-        {
-            "id": "a",
-            "job_type": "cron",
-            "expression": "*/5 * * * *",
-            "prompt": "check weather",
-            "created_at": "2026-01-01T00:00:00",
-        }
-    ]
-    with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Here are your jobs [CRON_LIST]", None)
-        await handle_text(update, context)
-        reply = update.message.reply_text.call_args[0][0]
-        assert "[CRON]" in reply
-        assert "check weather" in reply
-
-
-@pytest.mark.asyncio
-async def test_handle_text_cron_remove_tag_removes_job(tmp_path):
-    update = _make_update(text="remove job 1")
-    context = _make_context(tmp_path, cron_enabled=True)
-    context.bot_data["cron_jobs"] = [
-        {
-            "id": "abc",
-            "job_type": "cron",
-            "expression": "*/5 * * * *",
-            "prompt": "test",
-            "created_at": "2026-01-01T00:00:00",
-        }
-    ]
-    with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Removed [CRON_REMOVE: 1]", None)
-        await handle_text(update, context)
-        assert len(context.bot_data["cron_jobs"]) == 0
-
-
-@pytest.mark.asyncio
-async def test_handle_text_cron_tags_stripped(tmp_path):
-    update = _make_update(text="do something")
-    context = _make_context(tmp_path, cron_enabled=True)
-    with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = (
-            "Done [CRON_ADD: */5 * * * * | test] bye",
-            None,
-        )
-        await handle_text(update, context)
-        reply = update.message.reply_text.call_args[0][0]
-        assert "[CRON_ADD" not in reply
-
-
-@pytest.mark.asyncio
-async def test_handle_text_cron_not_processed_when_disabled(tmp_path):
-    update = _make_update(text="hello")
-    context = _make_context(tmp_path, cron_enabled=False)
-    with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = (
-            "Done [CRON_ADD: */5 * * * * | test]",
-            None,
-        )
-        await handle_text(update, context)
-        assert len(context.bot_data["cron_jobs"]) == 0
-        reply = update.message.reply_text.call_args[0][0]
-        assert "[CRON_ADD" in reply
-
-
-@pytest.mark.asyncio
 async def test_handle_text_cron_count_in_prompt(tmp_path):
     update = _make_update(text="hello")
     context = _make_context(tmp_path, cron_enabled=True)
@@ -626,23 +418,6 @@ async def test_handle_text_scheduled_without_silent_sends_reply(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_handle_text_non_scheduled_silent_tag_stripped(tmp_path):
-    update = _make_update(text="hello")
-    update.update_id = 44
-    context = _make_context(tmp_path, cron_enabled=True)
-    # Not in scheduled IDs — regular user message
-    with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Nothing here [SILENT] bye", None)
-        await handle_text(update, context)
-        reply = update.message.reply_text.call_args[0][0]
-        assert "[SILENT]" not in reply
-        assert "Nothing here" in reply
-        assert "bye" in reply
-
-
-@pytest.mark.asyncio
 async def test_handle_help_command_shows_cron_commands(tmp_path):
     update = _make_update()
     context = _make_context(tmp_path)
@@ -653,3 +428,32 @@ async def test_handle_help_command_shows_cron_commands(tmp_path):
     assert "/listcron" in reply
     assert "/removecron" in reply
     assert "/testcron" in reply
+
+
+@pytest.mark.asyncio
+async def test_handle_text_passes_allowed_tools(tmp_path):
+    """Settings allowed_tools are passed to call_claude."""
+    update = _make_update(text="hello")
+    context = _make_context(tmp_path, allowed_tools=["WebSearch", "WebFetch"])
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
+        mock_claude.return_value = ("Hi!", None)
+        await handle_text(update, context)
+        tools_arg = mock_claude.call_args.kwargs["allowed_tools"]
+        assert tools_arg == ["WebSearch", "WebFetch"]
+
+
+@pytest.mark.asyncio
+async def test_handle_text_includes_mcp_allowed_tools(tmp_path):
+    """MCP tool names from bot_data are appended to allowed_tools."""
+    update = _make_update(text="hello")
+    context = _make_context(tmp_path, allowed_tools=["WebSearch"])
+    context.bot_data["mcp_allowed_tools"] = ["mcp__pyclaudius__*"]
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
+        mock_claude.return_value = ("Hi!", None)
+        await handle_text(update, context)
+        tools_arg = mock_claude.call_args.kwargs["allowed_tools"]
+        assert tools_arg == ["WebSearch", "mcp__pyclaudius__*"]

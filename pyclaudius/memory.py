@@ -1,12 +1,8 @@
 import json
 import logging
-import re
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
-
-_REMEMBER_PATTERN = re.compile(r"\[REMEMBER:\s*([^\]]+)\]", re.IGNORECASE)
-_FORGET_PATTERN = re.compile(r"\[FORGET:\s*([^\]]+)\]", re.IGNORECASE)
 
 
 def load_memory(*, memory_file: Path) -> list[str]:
@@ -31,23 +27,6 @@ def format_memory_section(*, memories: list[str]) -> str:
         return ""
     lines = "\n".join(f"- {fact}" for fact in memories)
     return f"## Memory\n{lines}\n\n"
-
-
-def extract_remember_tags(*, text: str) -> list[str]:
-    """Extract [REMEMBER: ...] facts from text."""
-    return [match.strip() for match in _REMEMBER_PATTERN.findall(text)]
-
-
-def extract_forget_tags(*, text: str) -> list[str]:
-    """Extract [FORGET: ...] keywords from text."""
-    return [match.strip() for match in _FORGET_PATTERN.findall(text)]
-
-
-def strip_remember_tags(*, text: str) -> str:
-    """Remove [REMEMBER: ...] and [FORGET: ...] tags from text."""
-    text = _REMEMBER_PATTERN.sub("", text)
-    text = _FORGET_PATTERN.sub("", text)
-    return text.strip()
 
 
 def remove_memories(*, existing: list[str], keywords: list[str]) -> list[str]:

@@ -20,16 +20,13 @@ def test_build_prompt_contains_time():
 def test_build_prompt_with_cron_count():
     result = build_prompt(user_message="test", cron_count=3)
     assert "3 scheduled task(s)" in result
-    assert "CRON_ADD" in result
-    assert "SCHEDULE" in result
-    assert "CRON_REMOVE" in result
-    assert "CRON_LIST" in result
+    assert "cron tools" in result
 
 
 def test_build_prompt_without_cron_count():
     result = build_prompt(user_message="test")
     assert "scheduled task" not in result
-    assert "CRON_ADD" not in result
+    assert "cron tools" not in result
 
 
 def test_build_prompt_is_scheduled_includes_silent_instruction():
@@ -52,3 +49,16 @@ def test_build_prompt_with_timezone():
 def test_build_prompt_with_timezone_none():
     result = build_prompt(user_message="test", timezone=None)
     assert "(UTC)" in result
+
+
+def test_build_prompt_with_memory_section_includes_hint():
+    result = build_prompt(user_message="test", memory_section="## Memory\n- fact\n\n")
+    assert "remember_fact" in result
+    assert "forget_memory" in result
+    assert "## Memory" in result
+
+
+def test_build_prompt_without_memory_section_no_hint():
+    result = build_prompt(user_message="test", memory_section=None)
+    assert "remember_fact" not in result
+    assert "forget_memory" not in result

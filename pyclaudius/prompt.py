@@ -17,24 +17,18 @@ def build_prompt(
     tz_label = timezone or "UTC"
     time_str = now.strftime("%A, %B %d, %Y, %I:%M %p")
 
-    memory_instruction = (
-        "If you learn an important fact about the user, include [REMEMBER: fact] in your response. "
-        "To correct or remove an outdated fact, include [FORGET: keyword] in your response.\n\n"
-        if memory_section is not None
-        else ""
-    )
+    memory_hint = ""
+    if memory_section is not None:
+        memory_hint = "Use the remember_fact and forget_memory tools to manage facts about the user.\n\n"
 
-    cron_instruction = ""
+    cron_hint = ""
     if cron_count is not None:
-        cron_instruction = (
-            f"You have {cron_count} scheduled task(s).\n"
-            "To add a recurring cron job: [CRON_ADD: <cron expression> | <prompt>]\n"
-            "To schedule a one-time task: [SCHEDULE: <YYYY-MM-DD HH:MM> | <prompt>]\n"
-            "To remove a scheduled task by number: [CRON_REMOVE: <number>]\n"
-            "To list all scheduled tasks: [CRON_LIST]\n\n"
+        cron_hint = (
+            f"You have {cron_count} scheduled task(s). "
+            "Use cron tools to manage them.\n\n"
         )
         if is_scheduled:
-            cron_instruction += (
+            cron_hint += (
                 "This is an automated scheduled task. If there is nothing noteworthy "
                 "to report, respond with only [SILENT] to suppress notification to "
                 "the user.\n\n"
@@ -43,8 +37,8 @@ def build_prompt(
     return (
         "You are responding via Telegram. Keep responses concise.\n\n"
         f"Current time of your user: {time_str} ({tz_label})\n\n"
-        f"{memory_instruction}"
-        f"{cron_instruction}"
+        f"{memory_hint}"
+        f"{cron_hint}"
         f"{memory_section or ''}"
         f"User: {user_message}"
     )

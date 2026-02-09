@@ -1,3 +1,7 @@
+# [0.7.0] -2026-02-08
+
+* new mcp tooling setup
+
 # [0.6.0] - 2026-02-09
 
 * New cron functionality

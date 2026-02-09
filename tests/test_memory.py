@@ -2,13 +2,10 @@ import json
 
 from pyclaudius.memory import (
     add_memories,
-    extract_forget_tags,
-    extract_remember_tags,
     format_memory_section,
     load_memory,
     remove_memories,
     save_memory,
-    strip_remember_tags,
 )
 
 
@@ -56,40 +53,6 @@ def test_format_memory_section_multi():
     assert result == "## Memory\n- fact1\n- fact2\n- fact3\n\n"
 
 
-def test_extract_remember_tags_none():
-    assert extract_remember_tags(text="No tags here") == []
-
-
-def test_extract_remember_tags_single():
-    text = "Hello [REMEMBER: user likes coffee] world"
-    assert extract_remember_tags(text=text) == ["user likes coffee"]
-
-
-def test_extract_remember_tags_multi():
-    text = "[REMEMBER: fact1] some text [REMEMBER: fact2]"
-    assert extract_remember_tags(text=text) == ["fact1", "fact2"]
-
-
-def test_extract_remember_tags_case_insensitive():
-    text = "[remember: lowercase] and [Remember: mixed]"
-    assert extract_remember_tags(text=text) == ["lowercase", "mixed"]
-
-
-def test_strip_remember_tags():
-    text = "Hello [REMEMBER: user likes coffee] world"
-    assert strip_remember_tags(text=text) == "Hello  world"
-
-
-def test_strip_remember_tags_multi():
-    text = "[REMEMBER: a] text [REMEMBER: b] end"
-    assert strip_remember_tags(text=text) == "text  end"
-
-
-def test_strip_remember_tags_no_tags():
-    text = "No tags here"
-    assert strip_remember_tags(text=text) == "No tags here"
-
-
 def test_add_memories_basic():
     result = add_memories(existing=["a"], new=["b"])
     assert result == ["a", "b"]
@@ -108,25 +71,6 @@ def test_add_memories_max_limit():
 def test_add_memories_empty():
     result = add_memories(existing=[], new=[])
     assert result == []
-
-
-def test_extract_forget_tags_none():
-    assert extract_forget_tags(text="No tags here") == []
-
-
-def test_extract_forget_tags_single():
-    text = "OK [FORGET: coffee] done"
-    assert extract_forget_tags(text=text) == ["coffee"]
-
-
-def test_extract_forget_tags_case_insensitive():
-    text = "[forget: old fact] and [Forget: another]"
-    assert extract_forget_tags(text=text) == ["old fact", "another"]
-
-
-def test_strip_remember_tags_also_strips_forget():
-    text = "Hello [REMEMBER: a] and [FORGET: b] world"
-    assert strip_remember_tags(text=text) == "Hello  and  world"
 
 
 def test_remove_memories_by_keyword():

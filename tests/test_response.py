@@ -1,4 +1,4 @@
-from pyclaudius.response import split_response
+from pyclaudius.response import has_silent_tag, split_response
 
 
 def test_empty_text():
@@ -56,3 +56,16 @@ def test_multiple_splits():
     text = "aaa bbb ccc ddd"
     chunks = split_response(text=text, max_length=8)
     assert chunks == ["aaa bbb", "ccc ddd"]
+
+
+def test_has_silent_tag_true():
+    assert has_silent_tag(text="Nothing to report [SILENT]") is True
+
+
+def test_has_silent_tag_false():
+    assert has_silent_tag(text="Here is the weather report") is False
+
+
+def test_has_silent_tag_case_insensitive():
+    assert has_silent_tag(text="[silent]") is True
+    assert has_silent_tag(text="[Silent]") is True

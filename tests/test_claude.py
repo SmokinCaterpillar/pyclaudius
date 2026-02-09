@@ -259,9 +259,7 @@ async def test_call_claude_retries_on_auth_error():
         "asyncio.create_subprocess_exec",
         side_effect=dispatcher,
     ):
-        result, session_id = await call_claude(
-            prompt="hello", auto_refresh_auth=True
-        )
+        result, session_id = await call_claude(prompt="hello", auto_refresh_auth=True)
         assert result == "Hello from Claude"
         assert session_id is not None
         assert call_count == 2
@@ -280,6 +278,7 @@ async def test_call_claude_no_retry_on_normal_error():
         result, _ = await call_claude(prompt="hello")
         assert result == "Some normal response"
         mock_exec.assert_called_once()
+
 
 
 @pytest.mark.asyncio

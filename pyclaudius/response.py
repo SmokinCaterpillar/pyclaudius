@@ -1,3 +1,13 @@
+import re
+
+_SILENT_PATTERN = re.compile(r"\[SILENT\]", re.IGNORECASE)
+
+
+def has_silent_tag(*, text: str) -> bool:
+    """Check if text contains [SILENT]."""
+    return bool(_SILENT_PATTERN.search(text))
+
+
 def split_response(*, text: str, max_length: int = 4000) -> list[str]:
     """Split text into chunks for Telegram's message limit.
 
