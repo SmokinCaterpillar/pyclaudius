@@ -76,8 +76,9 @@ def with_auth_retry(
 
     @wraps(func)
     async def wrapper(**kwargs: object) -> tuple[str, str | None]:
+        auto_refresh = kwargs.pop("auto_refresh_auth", False)
         response, session_id = await func(**kwargs)
-        if is_auth_error(response=response):
+        if auto_refresh and is_auth_error(response=response):
             logger.warning("Auth error detected, attempting token refresh...")
             refreshed = await refresh_auth(
                 claude_path=str(kwargs.get("claude_path", "claude")),

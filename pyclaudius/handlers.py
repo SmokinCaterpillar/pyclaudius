@@ -124,6 +124,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 resume=True,
                 allowed_tools=settings.allowed_tools,
                 cwd=str(settings.claude_work_dir),
+                auto_refresh_auth=settings.auto_refresh_auth,
             )
     else:
         response, new_session_id = await call_claude(
@@ -133,6 +134,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             resume=True,
             allowed_tools=settings.allowed_tools,
             cwd=str(settings.claude_work_dir),
+            auto_refresh_auth=settings.auto_refresh_auth,
         )
 
     if new_session_id:
@@ -198,6 +200,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 add_dirs=[str(settings.uploads_dir)],
                 allowed_tools=settings.allowed_tools,
                 cwd=str(settings.claude_work_dir),
+                auto_refresh_auth=settings.auto_refresh_auth,
             )
     else:
         response, new_session_id = await call_claude(
@@ -208,6 +211,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             add_dirs=[str(settings.uploads_dir)],
             allowed_tools=settings.allowed_tools,
             cwd=str(settings.claude_work_dir),
+            auto_refresh_auth=settings.auto_refresh_auth,
         )
 
     if new_session_id:
@@ -270,6 +274,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 add_dirs=[str(settings.uploads_dir)],
                 allowed_tools=settings.allowed_tools,
                 cwd=str(settings.claude_work_dir),
+                auto_refresh_auth=settings.auto_refresh_auth,
             )
     else:
         response, new_session_id = await call_claude(
@@ -280,6 +285,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             add_dirs=[str(settings.uploads_dir)],
             allowed_tools=settings.allowed_tools,
             cwd=str(settings.claude_work_dir),
+            auto_refresh_auth=settings.auto_refresh_auth,
         )
 
     if new_session_id:

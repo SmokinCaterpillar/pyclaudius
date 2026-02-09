@@ -75,6 +75,13 @@ def test_settings_str_masks_token(monkeypatch):
     assert "12345" in result
 
 
+def test_settings_auto_refresh_auth_default(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    s = Settings()
+    assert s.auto_refresh_auth is False
+
+
 def test_ensure_dirs_idempotent(tmp_path, monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
     monkeypatch.setenv("TELEGRAM_USER_ID", "1")

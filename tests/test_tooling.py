@@ -2,7 +2,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from pyclaudius.tooling import authorized, check_authorized, is_auth_error, refresh_auth
+from pyclaudius.tooling import (
+    authorized,
+    check_authorized,
+    is_auth_error,
+    refresh_auth,
+    with_auth_retry,
+)
 
 
 def test_check_authorized_match():
@@ -163,3 +169,36 @@ async def test_refresh_auth_timeout():
     ):
         result = await refresh_auth(claude_path="claude")
         assert result is False
+
+
+@pytest.mark.asyncio
+async def test_with_auth_retry_skips_when_disabled():
+    """Auth error response returned as-is when auto_refresh_auth=False."""
+
+    @with_auth_retry
+    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
+        return "authentication_error", "sess-1"
+
+    result, session_id = await fake_claude(prompt="hi", auto_refresh_auth=False)
+    assert result == "authentication_error"
+    assert session_id == "sess-1"
+
+
+@pytest.mark.asyncio
+async def test_with_auth_retry_retries_when_enabled():
+    """Retries when auto_refresh_auth=True and auth error detected."""
+    call_count = 0
+
+    @with_auth_retry
+    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return "authentication_error", "sess-1"
+        return "Hello from Claude", "sess-1"
+
+    with patch("pyclaudius.tooling.refresh_auth", return_value=True) as mock_refresh:
+        result, _session_id = await fake_claude(prompt="hi", auto_refresh_auth=True)
+        assert result == "Hello from Claude"
+        assert call_count == 2
+        mock_refresh.assert_called_once()

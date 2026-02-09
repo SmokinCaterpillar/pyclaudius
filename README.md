@@ -93,6 +93,24 @@ By default, Claude CLI in print mode (`-p`) does not have permission to use tool
 ALLOWED_TOOLS=["WebSearch","WebFetch"]
 ```
 
+## Auto-refresh authentication
+
+When Claude CLI is used in print mode (`-p`), it does not automatically refresh expired OAuth tokens. pyclaudius can detect authentication errors and spawn a brief interactive Claude session to trigger a token refresh.
+
+**This feature is disabled by default** because it is a gray area in the Claude CLI terms of service — the `-p` flag intentionally skips interactive authentication flows, and this workaround bypasses that by spawning a short-lived interactive session that immediately exits after the token is refreshed.
+
+To enable it:
+
+```bash
+AUTO_REFRESH_AUTH=true
+```
+
+When enabled, if an API call returns an authentication error (expired token, 401), pyclaudius will:
+1. Spawn `claude` interactively and pipe `/exit` to trigger the OAuth refresh
+2. Retry the original request with the refreshed token
+
+If you are uncomfortable with this approach, leave the setting disabled and manually re-authenticate with `claude auth login` when tokens expire.
+
 ## Deploying on a server (Hetzner, etc.)
 
 ### 1. Provision the server

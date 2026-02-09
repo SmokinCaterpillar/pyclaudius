@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     max_memories: int = 100
     cron_enabled: bool = False
     allowed_tools: list[str] = []
+    auto_refresh_auth: bool = False
 
     def __str__(self) -> str:
         fields = {

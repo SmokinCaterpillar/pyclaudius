@@ -259,7 +259,9 @@ async def test_call_claude_retries_on_auth_error():
         "asyncio.create_subprocess_exec",
         side_effect=dispatcher,
     ):
-        result, session_id = await call_claude(prompt="hello")
+        result, session_id = await call_claude(
+            prompt="hello", auto_refresh_auth=True
+        )
         assert result == "Hello from Claude"
         assert session_id is not None
         assert call_count == 2
@@ -277,4 +279,24 @@ async def test_call_claude_no_retry_on_normal_error():
     ) as mock_exec:
         result, _ = await call_claude(prompt="hello")
         assert result == "Some normal response"
+        mock_exec.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_call_claude_no_retry_when_auto_refresh_disabled():
+    """Auth error response returned as-is when auto_refresh_auth is False (default)."""
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.communicate.return_value = (
+        b'{"type":"error","error":{"type":"authentication_error"}}',
+        b"",
+    )
+
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec",
+        return_value=proc,
+    ) as mock_exec:
+        result, session_id = await call_claude(prompt="hello")
+        assert "authentication_error" in result
+        assert session_id is not None
         mock_exec.assert_called_once()
