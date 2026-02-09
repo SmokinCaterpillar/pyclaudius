@@ -59,8 +59,8 @@ def format_cron_list(
             display_expr = job["expression"]
 
         tz_annotation = ""
-        if job["job_type"] == "cron" and job_tz and job_tz != "UTC":
-            tz_annotation = f" ({job_tz})"
+        if job["job_type"] == "cron":
+            tz_annotation = f" ({job_tz or 'UTC'})"
 
         lines.append(
             f"{i}. {label} {display_expr}{tz_annotation} — {job['prompt']}"

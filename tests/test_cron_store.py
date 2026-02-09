@@ -90,7 +90,7 @@ def test_format_cron_list_single_cron():
         }
     ]
     result = format_cron_list(jobs=jobs)
-    assert result == "1. [CRON] */5 * * * * \u2014 check weather"
+    assert result == "1. [CRON] */5 * * * * (UTC) \u2014 check weather"
 
 
 def test_format_cron_list_mixed_types():
