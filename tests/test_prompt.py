@@ -14,7 +14,7 @@ def test_build_prompt_contains_instruction():
 
 def test_build_prompt_contains_time():
     result = build_prompt(user_message="test")
-    assert "Current time:" in result
+    assert "Current time of your user:" in result
 
 
 def test_build_prompt_with_cron_count():
