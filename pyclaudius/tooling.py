@@ -206,7 +206,7 @@ async def refresh_auth(
         f"Token refresh exited with code {proc.returncode}: "
         f"pty={pty_text!r}, stderr={stderr_text!r}"
     )
-    logger.debug(f"Token refresh raw PTY hex: {raw_hex}")
+    logger.warning(f"Token refresh raw PTY hex: {raw_hex}")
     return proc.returncode == 0
 
 
