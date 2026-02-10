@@ -255,9 +255,12 @@ async def test_call_claude_retries_on_auth_error():
             return auth_error_proc if call_count == 1 else success_proc
         return refresh_proc
 
-    with patch(
-        "asyncio.create_subprocess_exec",
-        side_effect=dispatcher,
+    with (
+        patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=dispatcher,
+        ),
+        patch("asyncio.sleep", new_callable=AsyncMock),
     ):
         result, session_id = await call_claude(prompt="hello", auto_refresh_auth=True)
         assert result == "Hello from Claude"

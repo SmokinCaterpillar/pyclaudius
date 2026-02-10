@@ -129,15 +129,19 @@ async def test_refresh_auth_success():
     proc = AsyncMock()
     proc.returncode = 0
     proc.communicate.return_value = (b"", b"")
-    with patch(
-        "pyclaudius.tooling.asyncio.create_subprocess_exec",
-        return_value=proc,
-    ) as mock_exec:
-        result = await refresh_auth(claude_path="/usr/bin/claude")
+    with (
+        patch(
+            "pyclaudius.tooling.asyncio.create_subprocess_exec",
+            return_value=proc,
+        ) as mock_exec,
+        patch("pyclaudius.tooling.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        result = await refresh_auth(claude_path="/usr/bin/claude", cwd="/tmp/work")
         assert result is True
         mock_exec.assert_called_once()
         assert mock_exec.call_args[0] == ("/usr/bin/claude",)
-        proc.communicate.assert_called_once_with(input=b"/exit\n")
+        assert mock_exec.call_args.kwargs["cwd"] == "/tmp/work"
+        proc.communicate.assert_called_once_with(input=b"\n\n/exit\n")
 
 
 @pytest.mark.asyncio
@@ -145,9 +149,12 @@ async def test_refresh_auth_failure():
     proc = AsyncMock()
     proc.returncode = 1
     proc.communicate.return_value = (b"", b"error")
-    with patch(
-        "pyclaudius.tooling.asyncio.create_subprocess_exec",
-        return_value=proc,
+    with (
+        patch(
+            "pyclaudius.tooling.asyncio.create_subprocess_exec",
+            return_value=proc,
+        ),
+        patch("pyclaudius.tooling.asyncio.sleep", new_callable=AsyncMock),
     ):
         result = await refresh_auth(claude_path="claude")
         assert result is False
@@ -162,6 +169,7 @@ async def test_refresh_auth_timeout():
             "pyclaudius.tooling.asyncio.create_subprocess_exec",
             return_value=proc,
         ),
+        patch("pyclaudius.tooling.asyncio.sleep", new_callable=AsyncMock),
         patch(
             "pyclaudius.tooling.asyncio.wait_for",
             side_effect=TimeoutError,
@@ -169,6 +177,7 @@ async def test_refresh_auth_timeout():
     ):
         result = await refresh_auth(claude_path="claude")
         assert result is False
+        proc.kill.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -202,3 +211,31 @@ async def test_with_auth_retry_retries_when_enabled():
         assert result == "Hello from Claude"
         assert call_count == 2
         mock_refresh.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_refresh_auth_file_not_found():
+    """Returns False when Claude CLI binary is not found."""
+    with patch(
+        "pyclaudius.tooling.asyncio.create_subprocess_exec",
+        side_effect=FileNotFoundError,
+    ):
+        result = await refresh_auth(claude_path="/nonexistent/claude")
+        assert result is False
+
+
+@pytest.mark.asyncio
+async def test_refresh_auth_passes_cwd():
+    """Verify cwd kwarg reaches create_subprocess_exec."""
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.communicate.return_value = (b"", b"")
+    with (
+        patch(
+            "pyclaudius.tooling.asyncio.create_subprocess_exec",
+            return_value=proc,
+        ) as mock_exec,
+        patch("pyclaudius.tooling.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        await refresh_auth(claude_path="claude", cwd="/home/user/project")
+        assert mock_exec.call_args.kwargs["cwd"] == "/home/user/project"
