@@ -192,12 +192,14 @@ async def _refresh_auth_pty(
         """
         fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 
+    # All three fds must be the PTY — Node.js checks isTTY on all of
+    # stdin, stdout, *and* stderr to decide if it's truly interactive.
     try:
         proc = await asyncio.create_subprocess_exec(
             claude_path,
             stdin=slave_fd,
             stdout=slave_fd,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=slave_fd,
             env=env,
             cwd=cwd,
             start_new_session=True,
@@ -217,7 +219,6 @@ async def _refresh_auth_pty(
     async def _pty_write(data: bytes) -> None:
         await loop.run_in_executor(None, os.write, master_fd, data)
 
-    stderr: bytes | None = None
     timed_out = False
     try:
         # Wait for CLI to start and (hopefully) refresh the token as a
@@ -240,9 +241,7 @@ async def _refresh_auth_pty(
             with contextlib.suppress(ProcessLookupError):
                 proc.send_signal(signal.SIGTERM)
 
-        _stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=15,
-        )
+        await asyncio.wait_for(proc.wait(), timeout=15)
     except TimeoutError:
         timed_out = True
         with contextlib.suppress(ProcessLookupError):
@@ -257,7 +256,7 @@ async def _refresh_auth_pty(
 
     pty_text = _strip_ansi(pty_output.decode(errors="replace"))[:2000]
     raw_hex = pty_output[:800].hex(" ")
-    stderr_text = (stderr or b"").decode(errors="replace")[:500]
+    stderr_text = ""  # stderr is on the PTY now, captured in pty_output
 
     if timed_out:
         logger.error(
