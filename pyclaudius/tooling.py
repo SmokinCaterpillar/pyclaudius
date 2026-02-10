@@ -182,6 +182,16 @@ async def _refresh_auth_pty(
         winsize = struct.pack("HHHH", 24, 80, 0, 0)
         fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, winsize)
 
+    def _setup_ctty() -> None:
+        """Make the slave PTY the controlling terminal of the child.
+
+        After start_new_session calls setsid(), the child is a session
+        leader without a controlling terminal.  TIOCSCTTY on stdin
+        (already dup2'd to the slave fd) makes it the controlling
+        terminal so /dev/tty works and the CLI enters interactive mode.
+        """
+        fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+
     try:
         proc = await asyncio.create_subprocess_exec(
             claude_path,
@@ -190,6 +200,8 @@ async def _refresh_auth_pty(
             stderr=asyncio.subprocess.PIPE,
             env=env,
             cwd=cwd,
+            start_new_session=True,
+            preexec_fn=_setup_ctty,
         )
     except FileNotFoundError:
         logger.error(f"Claude CLI not found at {claude_path}")

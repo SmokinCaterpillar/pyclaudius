@@ -143,24 +143,8 @@ async def test_try_auth_login_success():
 
 
 @pytest.mark.asyncio
-async def test_try_auth_login_unknown_subcommand():
-    """Returns None when 'auth login' is not a recognized subcommand."""
-    proc = AsyncMock()
-    proc.returncode = 1
-    proc.communicate.return_value = (b"", b"unknown command")
-    with patch(
-        "pyclaudius.tooling.asyncio.create_subprocess_exec",
-        return_value=proc,
-    ):
-        result = await _try_auth_login(
-            claude_path="claude", cwd=None, env={},
-        )
-        assert result is None
-
-
-@pytest.mark.asyncio
-async def test_try_auth_login_failure():
-    """Returns False for non-zero exit that isn't an unknown subcommand."""
+async def test_try_auth_login_failure_falls_through():
+    """Returns None on any failure so caller can try PTY approach."""
     proc = AsyncMock()
     proc.returncode = 1
     proc.communicate.return_value = (b"", b"auth failed")
@@ -171,7 +155,7 @@ async def test_try_auth_login_failure():
         result = await _try_auth_login(
             claude_path="claude", cwd=None, env={},
         )
-        assert result is False
+        assert result is None
 
 
 @pytest.mark.asyncio
@@ -206,6 +190,8 @@ async def test_refresh_auth_pty_success():
         assert mock_exec.call_args.kwargs["stdin"] == 11
         assert mock_exec.call_args.kwargs["stdout"] == 11
         assert mock_exec.call_args.kwargs["cwd"] == "/tmp/work"
+        assert mock_exec.call_args.kwargs["start_new_session"] is True
+        assert mock_exec.call_args.kwargs["preexec_fn"] is not None
         mock_close.assert_any_call(11)
         proc.communicate.assert_called_once_with()
 
