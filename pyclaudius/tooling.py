@@ -1,9 +1,12 @@
 import asyncio
 import contextlib
+import fcntl
 import logging
 import os
 import pty
 import re
+import struct
+import termios
 from collections.abc import Awaitable, Callable
 from functools import wraps
 
@@ -50,7 +53,12 @@ def is_auth_error(*, response: str) -> bool:
     return any(marker in response for marker in _AUTH_ERROR_MARKERS)
 
 
-_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\].*?\x07|\x1b[()][A-Z0-9]")
+_ANSI_RE = re.compile(
+    r"\x1b\[[0-9;?]*[A-Za-z]"       # CSI sequences (e.g. colors, cursor)
+    r"|\x1b\[<[0-9;]*[A-Za-z]"      # Kitty keyboard protocol (e.g. \x1b[<u)
+    r"|\x1b\].*?\x07"               # OSC sequences
+    r"|\x1b[()][A-Z0-9]"            # Character set selection
+)
 
 
 def _strip_ansi(text: str) -> str:
@@ -100,13 +108,23 @@ async def refresh_auth(
 
     # Create a PTY pair so the CLI sees a real terminal on stdin + stdout.
     master_fd, slave_fd = pty.openpty()
+
+    # Set a reasonable terminal size — Ink requires dimensions to render.
+    with contextlib.suppress(OSError):
+        winsize = struct.pack("HHHH", 24, 80, 0, 0)
+        fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, winsize)
+
+    # The Ink-based CLI needs TERM to operate correctly in a PTY.
+    env = _build_subprocess_env()
+    env["TERM"] = "xterm-256color"
+
     try:
         proc = await asyncio.create_subprocess_exec(
             claude_path,
             stdin=slave_fd,
             stdout=slave_fd,
             stderr=asyncio.subprocess.PIPE,
-            env=_build_subprocess_env(),
+            env=env,
             cwd=cwd,
         )
     except FileNotFoundError:
@@ -142,10 +160,15 @@ async def refresh_auth(
         await asyncio.sleep(2)
         # Stage 4: Type /exit and press Enter to quit the REPL.
         await _pty_write(b"/exit\r")
+        await asyncio.sleep(2)
+        # Stage 5: Send Ctrl+C then Ctrl+D as fallback exit signals.
+        await _pty_write(b"\x03")  # Ctrl+C
+        await asyncio.sleep(1)
+        await _pty_write(b"\x04")  # Ctrl+D (EOF)
 
         # communicate() reads stderr (PIPE) and waits for exit.
         _stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=30
+            proc.communicate(), timeout=25
         )
     except TimeoutError:
         timed_out = True

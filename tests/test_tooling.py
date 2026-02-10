@@ -134,6 +134,7 @@ async def test_refresh_auth_success():
         patch("pyclaudius.tooling.pty.openpty", return_value=(10, 11)),
         patch("pyclaudius.tooling.os.close") as mock_close,
         patch("pyclaudius.tooling.os.write"),
+        patch("pyclaudius.tooling.fcntl.ioctl"),
         patch("pyclaudius.tooling._drain_pty_blocking", mock_drain),
         patch(
             "pyclaudius.tooling.asyncio.create_subprocess_exec",
@@ -152,6 +153,8 @@ async def test_refresh_auth_success():
         assert mock_exec.call_args.kwargs["stdin"] == 11
         assert mock_exec.call_args.kwargs["stdout"] == 11
         assert mock_exec.call_args.kwargs["cwd"] == "/tmp/work"
+        # Env includes TERM for PTY operation.
+        assert mock_exec.call_args.kwargs["env"]["TERM"] == "xterm-256color"
         # Slave fd closed in parent after subprocess spawn.
         mock_close.assert_any_call(11)
         proc.communicate.assert_called_once_with()
@@ -166,6 +169,7 @@ async def test_refresh_auth_failure():
         patch("pyclaudius.tooling.pty.openpty", return_value=(10, 11)),
         patch("pyclaudius.tooling.os.close"),
         patch("pyclaudius.tooling.os.write"),
+        patch("pyclaudius.tooling.fcntl.ioctl"),
         patch("pyclaudius.tooling._drain_pty_blocking", return_value=b""),
         patch(
             "pyclaudius.tooling.asyncio.create_subprocess_exec",
@@ -189,6 +193,7 @@ async def test_refresh_auth_timeout():
         patch("pyclaudius.tooling.pty.openpty", return_value=(10, 11)),
         patch("pyclaudius.tooling.os.close"),
         patch("pyclaudius.tooling.os.write"),
+        patch("pyclaudius.tooling.fcntl.ioctl"),
         patch("pyclaudius.tooling._drain_pty_blocking", return_value=b""),
         patch(
             "pyclaudius.tooling.asyncio.create_subprocess_exec",
@@ -290,6 +295,7 @@ async def test_refresh_auth_passes_cwd():
         patch("pyclaudius.tooling.pty.openpty", return_value=(10, 11)),
         patch("pyclaudius.tooling.os.close"),
         patch("pyclaudius.tooling.os.write"),
+        patch("pyclaudius.tooling.fcntl.ioctl"),
         patch("pyclaudius.tooling._drain_pty_blocking", return_value=b""),
         patch(
             "pyclaudius.tooling.asyncio.create_subprocess_exec",
