@@ -5,6 +5,7 @@ import logging
 import os
 import pty
 import re
+import signal
 import struct
 import termios
 from collections.abc import Awaitable, Callable
@@ -158,17 +159,21 @@ async def refresh_auth(
         # Stage 3: Press Enter again to dismiss any follow-up dialogs.
         await _pty_write(b"\r")
         await asyncio.sleep(2)
-        # Stage 4: Type /exit and press Enter to quit the REPL.
-        await _pty_write(b"/exit\r")
-        await asyncio.sleep(2)
-        # Stage 5: Send Ctrl+C then Ctrl+D as fallback exit signals.
-        await _pty_write(b"\x03")  # Ctrl+C
+        # Stage 4: Escape to clear any modal state, then /exit.
+        await _pty_write(b"\x1b")
         await asyncio.sleep(1)
-        await _pty_write(b"\x04")  # Ctrl+D (EOF)
+        await _pty_write(b"/exit\r")
+        await asyncio.sleep(3)
+
+        # Stage 5: SIGTERM for graceful shutdown if /exit didn't work.
+        if proc.returncode is None:
+            logger.info("CLI still running after /exit, sending SIGTERM...")
+            with contextlib.suppress(ProcessLookupError):
+                proc.send_signal(signal.SIGTERM)
 
         # communicate() reads stderr (PIPE) and waits for exit.
         _stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=25
+            proc.communicate(), timeout=20
         )
     except TimeoutError:
         timed_out = True
@@ -185,19 +190,23 @@ async def refresh_auth(
         pty_output = await drain_future
 
     pty_text = _strip_ansi(pty_output.decode(errors="replace"))[:2000]
+    # Log raw bytes so we can debug what the Ink TUI is actually rendering.
+    raw_hex = pty_output[:800].hex(" ")
     stderr_text = (stderr or b"").decode(errors="replace")[:500]
 
     if timed_out:
         logger.error(
-            f"Token refresh timed out after 30 seconds: "
+            f"Token refresh timed out: "
             f"pty={pty_text!r}, stderr={stderr_text!r}"
         )
+        logger.debug(f"Token refresh raw PTY hex: {raw_hex}")
         return False
 
     logger.info(
         f"Token refresh exited with code {proc.returncode}: "
         f"pty={pty_text!r}, stderr={stderr_text!r}"
     )
+    logger.debug(f"Token refresh raw PTY hex: {raw_hex}")
     return proc.returncode == 0
 
 
