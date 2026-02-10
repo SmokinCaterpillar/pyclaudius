@@ -54,10 +54,12 @@ async def refresh_auth(
 ) -> bool:
     """Spawn Claude interactively via a PTY to trigger an OAuth token refresh.
 
-    The Claude CLI (Ink-based) requires a real TTY on stdin to enter
-    interactive mode and perform silent OAuth token refresh.  We allocate
-    a pseudo-terminal for stdin so the CLI detects a TTY, waits for the
-    startup/auth handshake, then sends ``/exit`` to quit cleanly.
+    The Claude CLI (Ink-based) requires a real TTY on **both** stdin and
+    stdout to enter interactive mode.  We allocate a pseudo-terminal for
+    stdin and stdout so the CLI detects a TTY, wait for the startup/auth
+    handshake, then send ``/exit`` to quit cleanly.
+
+    stderr is kept as a pipe so we can capture error messages for logging.
 
     Returns True if the process exits with code 0.
     """
@@ -65,13 +67,13 @@ async def refresh_auth(
 
     logger.info(f"Attempting OAuth token refresh via {claude_path} (cwd={cwd})")
 
-    # Create a PTY pair so the CLI sees a real terminal on stdin.
+    # Create a PTY pair so the CLI sees a real terminal on stdin + stdout.
     master_fd, slave_fd = pty.openpty()
     try:
         proc = await asyncio.create_subprocess_exec(
             claude_path,
             stdin=slave_fd,
-            stdout=asyncio.subprocess.PIPE,
+            stdout=slave_fd,
             stderr=asyncio.subprocess.PIPE,
             env=_build_subprocess_env(),
             cwd=cwd,
@@ -94,7 +96,9 @@ async def refresh_auth(
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, os.write, master_fd, b"\n\n/exit\n")
 
-        stdout, stderr = await asyncio.wait_for(
+        # communicate() reads stderr (PIPE) and waits for exit.
+        # stdout is on the PTY so communicate() returns None for it.
+        _stdout, stderr = await asyncio.wait_for(
             proc.communicate(), timeout=30
         )
     except TimeoutError:
@@ -106,11 +110,10 @@ async def refresh_auth(
         with contextlib.suppress(OSError):
             os.close(master_fd)
 
-    stdout_text = stdout.decode(errors="replace")[:500]
-    stderr_text = stderr.decode(errors="replace")[:500]
+    stderr_text = (stderr or b"").decode(errors="replace")[:500]
     logger.info(
         f"Token refresh exited with code {proc.returncode}: "
-        f"stdout={stdout_text!r}, stderr={stderr_text!r}"
+        f"stderr={stderr_text!r}"
     )
     return proc.returncode == 0
 

@@ -128,7 +128,7 @@ def test_is_auth_error_no_match(text: str):
 async def test_refresh_auth_success():
     proc = AsyncMock()
     proc.returncode = 0
-    proc.communicate.return_value = (b"", b"")
+    proc.communicate.return_value = (None, b"")
     with (
         patch("pyclaudius.tooling.pty.openpty", return_value=(10, 11)),
         patch("pyclaudius.tooling.os.close") as mock_close,
@@ -148,6 +148,7 @@ async def test_refresh_auth_success():
         mock_exec.assert_called_once()
         assert mock_exec.call_args[0] == ("/usr/bin/claude",)
         assert mock_exec.call_args.kwargs["stdin"] == 11
+        assert mock_exec.call_args.kwargs["stdout"] == 11
         assert mock_exec.call_args.kwargs["cwd"] == "/tmp/work"
         # Slave fd closed in parent after subprocess spawn.
         mock_close.assert_any_call(11)
@@ -163,7 +164,7 @@ async def test_refresh_auth_success():
 async def test_refresh_auth_failure():
     proc = AsyncMock()
     proc.returncode = 1
-    proc.communicate.return_value = (b"", b"error")
+    proc.communicate.return_value = (None, b"error")
     with (
         patch("pyclaudius.tooling.pty.openpty", return_value=(10, 11)),
         patch("pyclaudius.tooling.os.close"),
@@ -185,7 +186,7 @@ async def test_refresh_auth_failure():
 @pytest.mark.asyncio
 async def test_refresh_auth_timeout():
     proc = AsyncMock()
-    proc.communicate.return_value = (b"", b"")
+    proc.communicate.return_value = (None, b"")
     with (
         patch("pyclaudius.tooling.pty.openpty", return_value=(10, 11)),
         patch("pyclaudius.tooling.os.close"),
@@ -265,7 +266,7 @@ async def test_refresh_auth_passes_cwd():
     """Verify cwd kwarg reaches create_subprocess_exec."""
     proc = AsyncMock()
     proc.returncode = 0
-    proc.communicate.return_value = (b"", b"")
+    proc.communicate.return_value = (None, b"")
     with (
         patch("pyclaudius.tooling.pty.openpty", return_value=(10, 11)),
         patch("pyclaudius.tooling.os.close"),
