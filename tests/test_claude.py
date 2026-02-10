@@ -266,7 +266,7 @@ async def test_call_claude_retries_on_auth_error():
         patch("pyclaudius.tooling.os.write"),
         patch(
             "pyclaudius.tooling.asyncio.get_running_loop",
-            return_value=MagicMock(run_in_executor=AsyncMock()),
+            return_value=MagicMock(run_in_executor=AsyncMock(return_value=b"")),
         ),
     ):
         result, session_id = await call_claude(prompt="hello", auto_refresh_auth=True)

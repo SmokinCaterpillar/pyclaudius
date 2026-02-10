@@ -49,6 +49,20 @@ def is_auth_error(*, response: str) -> bool:
     return any(marker in response for marker in _AUTH_ERROR_MARKERS)
 
 
+def _drain_pty_blocking(fd: int) -> bytes:
+    """Read from a PTY master until EOF/error (runs in a thread)."""
+    chunks: list[bytes] = []
+    while True:
+        try:
+            data = os.read(fd, 4096)
+            if not data:
+                break
+            chunks.append(data)
+        except OSError:
+            break
+    return b"".join(chunks)
+
+
 async def refresh_auth(
     *, claude_path: str = "claude", cwd: str | None = None
 ) -> bool:
@@ -58,6 +72,10 @@ async def refresh_auth(
     stdout to enter interactive mode.  We allocate a pseudo-terminal for
     stdin and stdout so the CLI detects a TTY, wait for the startup/auth
     handshake, then send ``/exit`` to quit cleanly.
+
+    A background thread continuously drains the PTY master to prevent the
+    Ink-rendered terminal output from filling the PTY buffer and blocking
+    the child process.
 
     stderr is kept as a pipe so we can capture error messages for logging.
 
@@ -87,33 +105,52 @@ async def refresh_auth(
     # Close slave in parent — the child process owns it now.
     os.close(slave_fd)
 
+    # Drain the PTY master in a background thread so the Ink-rendered
+    # terminal UI doesn't fill the PTY buffer and block the child.
+    loop = asyncio.get_running_loop()
+    drain_future = loop.run_in_executor(None, _drain_pty_blocking, master_fd)
+
+    stderr: bytes | None = None
+    timed_out = False
     try:
         # Give the CLI time to start up, handle trust/onboarding screens,
         # and silently refresh the OAuth token.
         await asyncio.sleep(5)
 
         # Send newlines to dismiss any prompts, then /exit to quit.
-        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, os.write, master_fd, b"\n\n/exit\n")
 
         # communicate() reads stderr (PIPE) and waits for exit.
-        # stdout is on the PTY so communicate() returns None for it.
         _stdout, stderr = await asyncio.wait_for(
             proc.communicate(), timeout=30
         )
     except TimeoutError:
-        logger.error("Token refresh timed out after 30 seconds")
+        timed_out = True
         with contextlib.suppress(ProcessLookupError):
             proc.kill()
-        return False
     finally:
+        # Close master fd — unblocks the drain thread (EIO on read).
         with contextlib.suppress(OSError):
             os.close(master_fd)
 
+    # Wait for drain thread to finish and collect PTY output for logging.
+    pty_output = b""
+    with contextlib.suppress(Exception):
+        pty_output = await drain_future
+
+    pty_text = pty_output.decode(errors="replace")[:1000]
     stderr_text = (stderr or b"").decode(errors="replace")[:500]
+
+    if timed_out:
+        logger.error(
+            f"Token refresh timed out after 30 seconds: "
+            f"pty={pty_text!r}, stderr={stderr_text!r}"
+        )
+        return False
+
     logger.info(
         f"Token refresh exited with code {proc.returncode}: "
-        f"stderr={stderr_text!r}"
+        f"pty={pty_text!r}, stderr={stderr_text!r}"
     )
     return proc.returncode == 0
 

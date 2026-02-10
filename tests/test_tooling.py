@@ -129,10 +129,12 @@ async def test_refresh_auth_success():
     proc = AsyncMock()
     proc.returncode = 0
     proc.communicate.return_value = (None, b"")
+    mock_drain = MagicMock(return_value=b"pty output")
     with (
         patch("pyclaudius.tooling.pty.openpty", return_value=(10, 11)),
         patch("pyclaudius.tooling.os.close") as mock_close,
-        patch("pyclaudius.tooling.os.write") as mock_write,
+        patch("pyclaudius.tooling.os.write"),
+        patch("pyclaudius.tooling._drain_pty_blocking", mock_drain),
         patch(
             "pyclaudius.tooling.asyncio.create_subprocess_exec",
             return_value=proc,
@@ -140,8 +142,8 @@ async def test_refresh_auth_success():
         patch("pyclaudius.tooling.asyncio.sleep", new_callable=AsyncMock),
         patch(
             "pyclaudius.tooling.asyncio.get_running_loop",
-            return_value=MagicMock(run_in_executor=AsyncMock()),
-        ) as mock_loop,
+            return_value=MagicMock(run_in_executor=AsyncMock(return_value=b"")),
+        ),
     ):
         result = await refresh_auth(claude_path="/usr/bin/claude", cwd="/tmp/work")
         assert result is True
@@ -152,11 +154,6 @@ async def test_refresh_auth_success():
         assert mock_exec.call_args.kwargs["cwd"] == "/tmp/work"
         # Slave fd closed in parent after subprocess spawn.
         mock_close.assert_any_call(11)
-        # /exit sent via the master fd through run_in_executor.
-        loop_obj = mock_loop.return_value
-        loop_obj.run_in_executor.assert_called_once_with(
-            None, mock_write, 10, b"\n\n/exit\n"
-        )
         proc.communicate.assert_called_once_with()
 
 
@@ -169,6 +166,7 @@ async def test_refresh_auth_failure():
         patch("pyclaudius.tooling.pty.openpty", return_value=(10, 11)),
         patch("pyclaudius.tooling.os.close"),
         patch("pyclaudius.tooling.os.write"),
+        patch("pyclaudius.tooling._drain_pty_blocking", return_value=b""),
         patch(
             "pyclaudius.tooling.asyncio.create_subprocess_exec",
             return_value=proc,
@@ -176,7 +174,7 @@ async def test_refresh_auth_failure():
         patch("pyclaudius.tooling.asyncio.sleep", new_callable=AsyncMock),
         patch(
             "pyclaudius.tooling.asyncio.get_running_loop",
-            return_value=MagicMock(run_in_executor=AsyncMock()),
+            return_value=MagicMock(run_in_executor=AsyncMock(return_value=b"")),
         ),
     ):
         result = await refresh_auth(claude_path="claude")
@@ -191,6 +189,7 @@ async def test_refresh_auth_timeout():
         patch("pyclaudius.tooling.pty.openpty", return_value=(10, 11)),
         patch("pyclaudius.tooling.os.close"),
         patch("pyclaudius.tooling.os.write"),
+        patch("pyclaudius.tooling._drain_pty_blocking", return_value=b""),
         patch(
             "pyclaudius.tooling.asyncio.create_subprocess_exec",
             return_value=proc,
@@ -198,7 +197,7 @@ async def test_refresh_auth_timeout():
         patch("pyclaudius.tooling.asyncio.sleep", new_callable=AsyncMock),
         patch(
             "pyclaudius.tooling.asyncio.get_running_loop",
-            return_value=MagicMock(run_in_executor=AsyncMock()),
+            return_value=MagicMock(run_in_executor=AsyncMock(return_value=b"")),
         ),
         patch(
             "pyclaudius.tooling.asyncio.wait_for",
@@ -271,6 +270,7 @@ async def test_refresh_auth_passes_cwd():
         patch("pyclaudius.tooling.pty.openpty", return_value=(10, 11)),
         patch("pyclaudius.tooling.os.close"),
         patch("pyclaudius.tooling.os.write"),
+        patch("pyclaudius.tooling._drain_pty_blocking", return_value=b""),
         patch(
             "pyclaudius.tooling.asyncio.create_subprocess_exec",
             return_value=proc,
@@ -278,7 +278,7 @@ async def test_refresh_auth_passes_cwd():
         patch("pyclaudius.tooling.asyncio.sleep", new_callable=AsyncMock),
         patch(
             "pyclaudius.tooling.asyncio.get_running_loop",
-            return_value=MagicMock(run_in_executor=AsyncMock()),
+            return_value=MagicMock(run_in_executor=AsyncMock(return_value=b"")),
         ),
     ):
         await refresh_auth(claude_path="claude", cwd="/home/user/project")
