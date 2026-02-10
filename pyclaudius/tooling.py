@@ -3,6 +3,7 @@ import contextlib
 import logging
 import os
 import pty
+import re
 from collections.abc import Awaitable, Callable
 from functools import wraps
 
@@ -47,6 +48,18 @@ _AUTH_ERROR_MARKERS: tuple[str, ...] = (
 def is_auth_error(*, response: str) -> bool:
     """Check if a response contains authentication error indicators."""
     return any(marker in response for marker in _AUTH_ERROR_MARKERS)
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\].*?\x07|\x1b[()][A-Z0-9]")
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences and collapse whitespace."""
+    cleaned = _ANSI_RE.sub("", text)
+    # Collapse runs of whitespace but keep newlines visible.
+    cleaned = re.sub(r"[^\S\n]+", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
 
 
 def _drain_pty_blocking(fd: int) -> bytes:
@@ -148,7 +161,7 @@ async def refresh_auth(
     with contextlib.suppress(Exception):
         pty_output = await drain_future
 
-    pty_text = pty_output.decode(errors="replace")[:1000]
+    pty_text = _strip_ansi(pty_output.decode(errors="replace"))[:2000]
     stderr_text = (stderr or b"").decode(errors="replace")[:500]
 
     if timed_out:
