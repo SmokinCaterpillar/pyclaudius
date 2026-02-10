@@ -158,12 +158,10 @@ async def _try_auth_login(
         f"stdout={stdout_text!r}, stderr={stderr_text!r}"
     )
 
-    # Unknown subcommand → fall back to PTY approach.
-    if proc.returncode != 0 and ("unknown" in stderr_text.lower()
-                                  or "not a command" in stderr_text.lower()):
-        return None
-
-    return proc.returncode == 0
+    # Only return True on success; any failure falls through to PTY.
+    if proc.returncode == 0:
+        return True
+    return None
 
 
 async def _refresh_auth_pty(

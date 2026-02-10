@@ -349,44 +349,34 @@ async def test_with_auth_retry_retries_even_on_refresh_failure():
 
 
 @pytest.mark.asyncio
-async def test_refresh_auth_file_not_found():
+async def test_try_auth_login_file_not_found():
     """Returns False when Claude CLI binary is not found."""
+    with patch(
+        "pyclaudius.tooling.asyncio.create_subprocess_exec",
+        side_effect=FileNotFoundError,
+    ):
+        result = await _try_auth_login(
+            claude_path="/nonexistent/claude", cwd=None, env={},
+        )
+        assert result is False
+
+
+@pytest.mark.asyncio
+async def test_refresh_auth_pty_file_not_found():
+    """Returns False and closes both fds when CLI binary is not found."""
     with (
         patch("pyclaudius.tooling.pty.openpty", return_value=(10, 11)),
         patch("pyclaudius.tooling.os.close") as mock_close,
+        patch("pyclaudius.tooling.fcntl.ioctl"),
         patch(
             "pyclaudius.tooling.asyncio.create_subprocess_exec",
             side_effect=FileNotFoundError,
         ),
     ):
-        result = await refresh_auth(claude_path="/nonexistent/claude")
+        env = {"HOME": "/home/x"}
+        result = await _refresh_auth_pty(
+            claude_path="/nonexistent/claude", cwd=None, env=env,
+        )
         assert result is False
-        # Both PTY fds should be closed on error.
         mock_close.assert_any_call(10)
         mock_close.assert_any_call(11)
-
-
-@pytest.mark.asyncio
-async def test_refresh_auth_passes_cwd():
-    """Verify cwd kwarg reaches create_subprocess_exec."""
-    proc = AsyncMock()
-    proc.returncode = 0
-    proc.communicate.return_value = (None, b"")
-    with (
-        patch("pyclaudius.tooling.pty.openpty", return_value=(10, 11)),
-        patch("pyclaudius.tooling.os.close"),
-        patch("pyclaudius.tooling.os.write"),
-        patch("pyclaudius.tooling.fcntl.ioctl"),
-        patch("pyclaudius.tooling._drain_pty_blocking", return_value=b""),
-        patch(
-            "pyclaudius.tooling.asyncio.create_subprocess_exec",
-            return_value=proc,
-        ) as mock_exec,
-        patch("pyclaudius.tooling.asyncio.sleep", new_callable=AsyncMock),
-        patch(
-            "pyclaudius.tooling.asyncio.get_running_loop",
-            return_value=MagicMock(run_in_executor=AsyncMock(return_value=b"")),
-        ),
-    ):
-        await refresh_auth(claude_path="claude", cwd="/home/user/project")
-        assert mock_exec.call_args.kwargs["cwd"] == "/home/user/project"
