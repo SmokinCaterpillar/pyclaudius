@@ -243,6 +243,26 @@ async def test_with_auth_retry_retries_when_enabled():
 
 
 @pytest.mark.asyncio
+async def test_with_auth_retry_retries_even_on_refresh_failure():
+    """Retries even when refresh_auth returns False (side-effect refresh)."""
+    call_count = 0
+
+    @with_auth_retry
+    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return "authentication_error", "sess-1"
+        return "Hello from Claude", "sess-1"
+
+    with patch("pyclaudius.tooling.refresh_auth", return_value=False) as mock_refresh:
+        result, _session_id = await fake_claude(prompt="hi", auto_refresh_auth=True)
+        assert result == "Hello from Claude"
+        assert call_count == 2
+        mock_refresh.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_refresh_auth_file_not_found():
     """Returns False when Claude CLI binary is not found."""
     with (

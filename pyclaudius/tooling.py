@@ -181,7 +181,13 @@ async def refresh_auth(
 def with_auth_retry(
     func: Callable[..., Awaitable[tuple[str, str | None]]],
 ) -> Callable[..., Awaitable[tuple[str, str | None]]]:
-    """Retry *func* once after refreshing the OAuth token on auth errors."""
+    """Retry *func* once after refreshing the OAuth token on auth errors.
+
+    Always retries after the refresh attempt, even if ``refresh_auth``
+    reported failure.  The interactive CLI may refresh the token as a
+    side-effect (e.g. before showing a trust dialog) and then time out
+    on a subsequent screen.  Retrying catches that case.
+    """
 
     @wraps(func)
     async def wrapper(**kwargs: object) -> tuple[str, str | None]:
@@ -195,9 +201,12 @@ def with_auth_retry(
             )
             if refreshed:
                 logger.info("Token refreshed successfully, retrying...")
-                response, session_id = await func(**kwargs)
             else:
-                logger.error("Token refresh failed")
+                logger.warning(
+                    "Token refresh exited unsuccessfully, "
+                    "retrying anyway (token may have been refreshed as side-effect)..."
+                )
+            response, session_id = await func(**kwargs)
         return response, session_id
 
     return wrapper
