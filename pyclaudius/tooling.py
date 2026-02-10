@@ -199,7 +199,7 @@ async def refresh_auth(
             f"Token refresh timed out: "
             f"pty={pty_text!r}, stderr={stderr_text!r}"
         )
-        logger.debug(f"Token refresh raw PTY hex: {raw_hex}")
+        logger.warning(f"Token refresh raw PTY hex: {raw_hex}")
         return False
 
     logger.info(
