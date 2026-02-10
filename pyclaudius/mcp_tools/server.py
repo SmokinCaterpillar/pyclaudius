@@ -5,6 +5,7 @@ import logging
 from fastmcp import FastMCP
 
 from pyclaudius import operations
+from pyclaudius.mcp_tools import email as email_tools
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,42 @@ def create_mcp_server(*, bot_data: dict) -> FastMCP:
         async def list_memories() -> str:
             """List all stored memory facts about the user."""
             return operations.list_memories(bot_data=bot_data)
+
+    if settings.email_enabled:
+
+        @mcp.tool()
+        async def download_new_mail() -> str:
+            """Download unseen emails from the configured IMAP account and save as markdown files."""
+            try:
+                saved = email_tools.download_new_mail(
+                    imap_host=settings.email_imap_host,
+                    imap_port=settings.email_imap_port,
+                    email_user=settings.email_user,
+                    email_password=settings.email_password,
+                    output_dir=str(settings.emails_dir),
+                )
+                if not saved:
+                    return "No new emails."
+                file_list = "\n".join(f"  - {f}" for f in saved)
+                return f"Downloaded {len(saved)} email(s):\n{file_list}"
+            except Exception as e:
+                return f"Failed to download emails: {e}"
+
+        @mcp.tool()
+        async def delete_read_mail() -> str:
+            """Delete all read (SEEN) emails from the configured IMAP account."""
+            try:
+                count = email_tools.delete_read_mail(
+                    imap_host=settings.email_imap_host,
+                    imap_port=settings.email_imap_port,
+                    email_user=settings.email_user,
+                    email_password=settings.email_password,
+                )
+                if count == 0:
+                    return "No read emails to delete."
+                return f"Deleted {count} read email(s) from server."
+            except Exception as e:
+                return f"Failed to delete emails: {e}"
 
     return mcp
 

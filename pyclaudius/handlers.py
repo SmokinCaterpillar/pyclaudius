@@ -387,7 +387,9 @@ async def handle_help_command(
         "/schedule <datetime> | <prompt> \u2014 schedule a one-time task\n"
         "/listcron \u2014 list all scheduled jobs\n"
         "/removecron <number> \u2014 remove a scheduled job by number\n"
-        "/testcron <number> \u2014 immediately test a scheduled job\n\n"
+        "/testcron <number> \u2014 immediately test a scheduled job\n"
+        "/downloadnewmail \u2014 download unseen emails as markdown\n"
+        "/deleteallreadmail \u2014 delete all read emails from server\n\n"
         "Text, photo, and document messages are forwarded to Claude."
     )
     await update.message.reply_text(help_text)

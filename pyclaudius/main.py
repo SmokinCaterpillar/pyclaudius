@@ -42,6 +42,10 @@ from pyclaudius.mcp_tools.config import (
     register_mcp_server,
     unregister_mcp_server,
 )
+from pyclaudius.mcp_tools.email_handlers import (
+    handle_deleteallreadmail_command,
+    handle_downloadnewmail_command,
+)
 from pyclaudius.mcp_tools.server import create_mcp_server, get_allowed_tools_wildcard
 from pyclaudius.memory import load_memory
 from pyclaudius.session import load_session
@@ -208,6 +212,8 @@ def main() -> None:
     app.add_handler(CommandHandler("listcron", handle_listcron_command))
     app.add_handler(CommandHandler("removecron", handle_removecron_command))
     app.add_handler(CommandHandler("testcron", handle_testcron_command))
+    app.add_handler(CommandHandler("downloadnewmail", handle_downloadnewmail_command))
+    app.add_handler(CommandHandler("deleteallreadmail", handle_deleteallreadmail_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))

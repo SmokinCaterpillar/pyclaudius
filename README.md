@@ -52,6 +52,8 @@ Tools are registered conditionally based on feature flags (`MEMORY_ENABLED`, `CR
 | `schedule_once` | `CRON_ENABLED` | Schedule a one-time task at a specific datetime |
 | `remove_cron_job` | `CRON_ENABLED` | Remove a scheduled job by index |
 | `list_cron_jobs` | `CRON_ENABLED` | List all scheduled cron jobs |
+| `download_new_mail` | `EMAIL_ENABLED` | Download unseen emails as markdown |
+| `delete_read_mail` | `EMAIL_ENABLED` | Delete all read emails from server |
 
 ### Adding your own tools
 
@@ -141,6 +143,36 @@ Jobs are stored in `~/.pyclaudius-relay/cron.json` and survive restarts.
 ### Silent responses
 
 When a scheduled job fires, Claude is instructed to respond with `[SILENT]` if there is nothing noteworthy to report. This suppresses the Telegram notification, avoiding spam from routine checks.
+
+## Email Integration
+
+pyclaudius can fetch emails from a dedicated IMAP account (e.g. a Gmail address that receives forwarded mail) and save them as markdown files in the Claude working directory. This lets Claude read and reason over your emails.
+
+### Telegram commands
+
+- `/downloadnewmail` — download unseen emails and save as markdown files
+- `/deleteallreadmail` — delete all read emails from the server
+
+### MCP tools
+
+When enabled, two MCP tools are also registered so Claude can fetch and clean mail autonomously:
+
+| Tool | Description |
+|------|-------------|
+| `download_new_mail` | Download unseen emails and save as markdown |
+| `delete_read_mail` | Delete all read (SEEN) emails from the server |
+
+### Configuration
+
+```bash
+EMAIL_ENABLED=true
+EMAIL_IMAP_HOST=imap.gmail.com   # optional, default
+EMAIL_IMAP_PORT=993              # optional, default
+EMAIL_USER=your-llm-email@gmail.com
+EMAIL_PASSWORD=your-app-password
+```
+
+For Gmail, use an [App Password](https://support.google.com/accounts/answer/185833) (not your regular password). Emails are saved to `~/.pyclaudius-relay/claude-work/emails/` as markdown files.
 
 ## Timezone
 

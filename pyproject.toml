@@ -123,7 +123,7 @@ ignore = [
     "RUF012", # Mutable class attributes should be annotated with `typing.ClassVar`
     "S101", # Use of `assert` detected
 ]
-per-file-ignores = {"tests/**" = ["S105"]}
+per-file-ignores = {"tests/**" = ["S105", "S106", "S108"]}
 pydocstyle.convention = "numpy"
 
 
