@@ -110,15 +110,25 @@ async def refresh_auth(
     loop = asyncio.get_running_loop()
     drain_future = loop.run_in_executor(None, _drain_pty_blocking, master_fd)
 
+    async def _pty_write(data: bytes) -> None:
+        await loop.run_in_executor(None, os.write, master_fd, data)
+
     stderr: bytes | None = None
     timed_out = False
     try:
-        # Give the CLI time to start up, handle trust/onboarding screens,
-        # and silently refresh the OAuth token.
+        # Give the CLI time to start up and show trust/onboarding screens.
         await asyncio.sleep(5)
 
-        # Send newlines to dismiss any prompts, then /exit to quit.
-        await loop.run_in_executor(None, os.write, master_fd, b"\n\n/exit\n")
+        # Ink uses raw mode — Enter is \r, not \n.
+        # Stage 1: Press Enter to confirm "Yes, I trust this folder".
+        await _pty_write(b"\r")
+        # Stage 2: Wait for potential onboarding/consent screens.
+        await asyncio.sleep(3)
+        # Stage 3: Press Enter again to dismiss any follow-up dialogs.
+        await _pty_write(b"\r")
+        await asyncio.sleep(2)
+        # Stage 4: Type /exit and press Enter to quit the REPL.
+        await _pty_write(b"/exit\r")
 
         # communicate() reads stderr (PIPE) and waits for exit.
         _stdout, stderr = await asyncio.wait_for(
