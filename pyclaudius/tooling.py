@@ -48,6 +48,13 @@ _AUTH_ERROR_MARKERS: tuple[str, ...] = (
     "API Error: 401",
 )
 
+# Env vars that must never be passed to a Claude CLI subprocess.
+_SECRET_ENV_VARS: frozenset[str] = frozenset({
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_USER_ID",
+    "ANTHROPIC_API_KEY",
+})
+
 
 def is_auth_error(*, response: str) -> bool:
     """Check if a response contains authentication error indicators."""
@@ -88,36 +95,94 @@ def _drain_pty_blocking(fd: int) -> bytes:
 async def refresh_auth(
     *, claude_path: str = "claude", cwd: str | None = None
 ) -> bool:
-    """Spawn Claude interactively via a PTY to trigger an OAuth token refresh.
+    """Attempt to refresh the Claude CLI OAuth token.
 
-    The Claude CLI (Ink-based) requires a real TTY on **both** stdin and
-    stdout to enter interactive mode.  We allocate a pseudo-terminal for
-    stdin and stdout so the CLI detects a TTY, wait for the startup/auth
-    handshake, then send ``/exit`` to quit cleanly.
+    Tries ``claude auth login`` first (pipe-based, no PTY needed).
+    Falls back to spawning an interactive PTY session if that fails.
 
-    A background thread continuously drains the PTY master to prevent the
-    Ink-rendered terminal output from filling the PTY buffer and blocking
-    the child process.
-
-    stderr is kept as a pipe so we can capture error messages for logging.
-
-    Returns True if the process exits with code 0.
+    Returns True if any approach exits with code 0.
     """
-    from pyclaudius.claude import _build_subprocess_env
+    # Use a permissive environment for the refresh — the CLI may need vars
+    # like USER, LANG, XDG_*, NODE_*, etc. that _build_subprocess_env strips.
+    # Only secrets are removed.
+    env = {k: v for k, v in os.environ.items() if k not in _SECRET_ENV_VARS}
+    env["TERM"] = "xterm-256color"
 
-    logger.info(f"Attempting OAuth token refresh via {claude_path} (cwd={cwd})")
+    # --- Approach 1: `claude auth login` via pipes (simple, no PTY) ---
+    result = await _try_auth_login(
+        claude_path=claude_path, cwd=cwd, env=env,
+    )
+    if result is not None:
+        return result
 
-    # Create a PTY pair so the CLI sees a real terminal on stdin + stdout.
+    # --- Approach 2: interactive PTY session ---
+    return await _refresh_auth_pty(
+        claude_path=claude_path, cwd=cwd, env=env,
+    )
+
+
+async def _try_auth_login(
+    *, claude_path: str, cwd: str | None, env: dict[str, str],
+) -> bool | None:
+    """Try ``claude auth login`` via pipes.
+
+    Returns True/False on success/failure, or None if the subcommand
+    does not exist (so the caller can fall back).
+    """
+    logger.info(f"Trying 'claude auth login' (cwd={cwd})")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            claude_path, "auth", "login",
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+            cwd=cwd,
+        )
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(), timeout=30,
+        )
+    except FileNotFoundError:
+        logger.error(f"Claude CLI not found at {claude_path}")
+        return False
+    except TimeoutError:
+        logger.warning("'claude auth login' timed out after 30s")
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        return None
+
+    stdout_text = stdout.decode(errors="replace")[:1000]
+    stderr_text = stderr.decode(errors="replace")[:1000]
+    logger.warning(
+        f"'claude auth login' exited {proc.returncode}: "
+        f"stdout={stdout_text!r}, stderr={stderr_text!r}"
+    )
+
+    # Unknown subcommand → fall back to PTY approach.
+    if proc.returncode != 0 and ("unknown" in stderr_text.lower()
+                                  or "not a command" in stderr_text.lower()):
+        return None
+
+    return proc.returncode == 0
+
+
+async def _refresh_auth_pty(
+    *,
+    claude_path: str,
+    cwd: str | None,
+    env: dict[str, str],
+) -> bool:
+    """Spawn Claude interactively via a PTY to trigger an OAuth refresh.
+
+    Falls back to SIGTERM if the TUI cannot be navigated.
+    """
+    logger.info(f"Trying interactive PTY refresh (cwd={cwd})")
+
     master_fd, slave_fd = pty.openpty()
 
-    # Set a reasonable terminal size — Ink requires dimensions to render.
     with contextlib.suppress(OSError):
         winsize = struct.pack("HHHH", 24, 80, 0, 0)
         fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, winsize)
-
-    # The Ink-based CLI needs TERM to operate correctly in a PTY.
-    env = _build_subprocess_env()
-    env["TERM"] = "xterm-256color"
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -134,11 +199,8 @@ async def refresh_auth(
         os.close(slave_fd)
         return False
 
-    # Close slave in parent — the child process owns it now.
     os.close(slave_fd)
 
-    # Drain the PTY master in a background thread so the Ink-rendered
-    # terminal UI doesn't fill the PTY buffer and block the child.
     loop = asyncio.get_running_loop()
     drain_future = loop.run_in_executor(None, _drain_pty_blocking, master_fd)
 
@@ -148,66 +210,56 @@ async def refresh_auth(
     stderr: bytes | None = None
     timed_out = False
     try:
-        # Give the CLI time to start up and show trust/onboarding screens.
-        await asyncio.sleep(5)
+        # Wait for CLI to start and (hopefully) refresh the token as a
+        # side-effect of initialisation.
+        await asyncio.sleep(8)
 
-        # Ink uses raw mode — Enter is \r, not \n.
-        # Stage 1: Press Enter to confirm "Yes, I trust this folder".
+        # Try to navigate any trust/onboarding dialogs.
         await _pty_write(b"\r")
-        # Stage 2: Wait for potential onboarding/consent screens.
         await asyncio.sleep(3)
-        # Stage 3: Press Enter again to dismiss any follow-up dialogs.
         await _pty_write(b"\r")
         await asyncio.sleep(2)
-        # Stage 4: Escape to clear any modal state, then /exit.
         await _pty_write(b"\x1b")
         await asyncio.sleep(1)
         await _pty_write(b"/exit\r")
         await asyncio.sleep(3)
 
-        # Stage 5: SIGTERM for graceful shutdown if /exit didn't work.
+        # SIGTERM for graceful shutdown if /exit didn't work.
         if proc.returncode is None:
             logger.info("CLI still running after /exit, sending SIGTERM...")
             with contextlib.suppress(ProcessLookupError):
                 proc.send_signal(signal.SIGTERM)
 
-        # communicate() reads stderr (PIPE) and waits for exit.
         _stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=20
+            proc.communicate(), timeout=15,
         )
     except TimeoutError:
         timed_out = True
         with contextlib.suppress(ProcessLookupError):
             proc.kill()
     finally:
-        # Close master fd — unblocks the drain thread (EIO on read).
         with contextlib.suppress(OSError):
             os.close(master_fd)
 
-    # Wait for drain thread to finish and collect PTY output for logging.
     pty_output = b""
     with contextlib.suppress(Exception):
         pty_output = await drain_future
 
     pty_text = _strip_ansi(pty_output.decode(errors="replace"))[:2000]
-    # Log raw bytes so we can debug what the Ink TUI is actually rendering.
     raw_hex = pty_output[:800].hex(" ")
     stderr_text = (stderr or b"").decode(errors="replace")[:500]
 
     if timed_out:
         logger.error(
-            f"Token refresh timed out: "
+            f"PTY refresh timed out: pty={pty_text!r}, stderr={stderr_text!r}"
+        )
+    else:
+        logger.info(
+            f"PTY refresh exited with code {proc.returncode}: "
             f"pty={pty_text!r}, stderr={stderr_text!r}"
         )
-        logger.warning(f"Token refresh raw PTY hex: {raw_hex}")
-        return False
-
-    logger.info(
-        f"Token refresh exited with code {proc.returncode}: "
-        f"pty={pty_text!r}, stderr={stderr_text!r}"
-    )
-    logger.warning(f"Token refresh raw PTY hex: {raw_hex}")
-    return proc.returncode == 0
+    logger.warning(f"PTY refresh raw hex: {raw_hex}")
+    return not timed_out and proc.returncode == 0
 
 
 def with_auth_retry(

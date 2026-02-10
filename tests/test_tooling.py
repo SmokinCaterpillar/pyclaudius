@@ -3,6 +3,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from pyclaudius.tooling import (
+    _refresh_auth_pty,
+    _try_auth_login,
     authorized,
     check_authorized,
     is_auth_error,
@@ -125,7 +127,55 @@ def test_is_auth_error_no_match(text: str):
 
 
 @pytest.mark.asyncio
-async def test_refresh_auth_success():
+async def test_try_auth_login_success():
+    """Returns True when 'claude auth login' exits 0."""
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.communicate.return_value = (b"ok", b"")
+    with patch(
+        "pyclaudius.tooling.asyncio.create_subprocess_exec",
+        return_value=proc,
+    ):
+        result = await _try_auth_login(
+            claude_path="claude", cwd="/tmp", env={"HOME": "/home/x"},
+        )
+        assert result is True
+
+
+@pytest.mark.asyncio
+async def test_try_auth_login_unknown_subcommand():
+    """Returns None when 'auth login' is not a recognized subcommand."""
+    proc = AsyncMock()
+    proc.returncode = 1
+    proc.communicate.return_value = (b"", b"unknown command")
+    with patch(
+        "pyclaudius.tooling.asyncio.create_subprocess_exec",
+        return_value=proc,
+    ):
+        result = await _try_auth_login(
+            claude_path="claude", cwd=None, env={},
+        )
+        assert result is None
+
+
+@pytest.mark.asyncio
+async def test_try_auth_login_failure():
+    """Returns False for non-zero exit that isn't an unknown subcommand."""
+    proc = AsyncMock()
+    proc.returncode = 1
+    proc.communicate.return_value = (b"", b"auth failed")
+    with patch(
+        "pyclaudius.tooling.asyncio.create_subprocess_exec",
+        return_value=proc,
+    ):
+        result = await _try_auth_login(
+            claude_path="claude", cwd=None, env={},
+        )
+        assert result is False
+
+
+@pytest.mark.asyncio
+async def test_refresh_auth_pty_success():
     proc = AsyncMock()
     proc.returncode = 0
     proc.communicate.return_value = (None, b"")
@@ -146,22 +196,22 @@ async def test_refresh_auth_success():
             return_value=MagicMock(run_in_executor=AsyncMock(return_value=b"")),
         ),
     ):
-        result = await refresh_auth(claude_path="/usr/bin/claude", cwd="/tmp/work")
+        env = {"HOME": "/home/x", "TERM": "xterm-256color"}
+        result = await _refresh_auth_pty(
+            claude_path="/usr/bin/claude", cwd="/tmp/work", env=env,
+        )
         assert result is True
         mock_exec.assert_called_once()
         assert mock_exec.call_args[0] == ("/usr/bin/claude",)
         assert mock_exec.call_args.kwargs["stdin"] == 11
         assert mock_exec.call_args.kwargs["stdout"] == 11
         assert mock_exec.call_args.kwargs["cwd"] == "/tmp/work"
-        # Env includes TERM for PTY operation.
-        assert mock_exec.call_args.kwargs["env"]["TERM"] == "xterm-256color"
-        # Slave fd closed in parent after subprocess spawn.
         mock_close.assert_any_call(11)
         proc.communicate.assert_called_once_with()
 
 
 @pytest.mark.asyncio
-async def test_refresh_auth_failure():
+async def test_refresh_auth_pty_failure():
     proc = AsyncMock()
     proc.returncode = 1
     proc.communicate.return_value = (None, b"error")
@@ -181,12 +231,13 @@ async def test_refresh_auth_failure():
             return_value=MagicMock(run_in_executor=AsyncMock(return_value=b"")),
         ),
     ):
-        result = await refresh_auth(claude_path="claude")
+        env = {"HOME": "/home/x", "TERM": "xterm-256color"}
+        result = await _refresh_auth_pty(claude_path="claude", cwd=None, env=env)
         assert result is False
 
 
 @pytest.mark.asyncio
-async def test_refresh_auth_timeout():
+async def test_refresh_auth_pty_timeout():
     proc = AsyncMock()
     proc.communicate.return_value = (None, b"")
     with (
@@ -209,9 +260,39 @@ async def test_refresh_auth_timeout():
             side_effect=TimeoutError,
         ),
     ):
-        result = await refresh_auth(claude_path="claude")
+        env = {"HOME": "/home/x", "TERM": "xterm-256color"}
+        result = await _refresh_auth_pty(claude_path="claude", cwd=None, env=env)
         assert result is False
         proc.kill.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_refresh_auth_uses_auth_login_first():
+    """refresh_auth tries auth login before falling back to PTY."""
+    with (
+        patch(
+            "pyclaudius.tooling._try_auth_login", return_value=True,
+        ) as mock_login,
+        patch("pyclaudius.tooling._refresh_auth_pty") as mock_pty,
+    ):
+        result = await refresh_auth(claude_path="claude", cwd="/tmp")
+        assert result is True
+        mock_login.assert_called_once()
+        mock_pty.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_refresh_auth_falls_back_to_pty():
+    """refresh_auth falls back to PTY when auth login returns None."""
+    with (
+        patch("pyclaudius.tooling._try_auth_login", return_value=None),
+        patch(
+            "pyclaudius.tooling._refresh_auth_pty", return_value=True,
+        ) as mock_pty,
+    ):
+        result = await refresh_auth(claude_path="claude", cwd="/tmp")
+        assert result is True
+        mock_pty.assert_called_once()
 
 
 @pytest.mark.asyncio
