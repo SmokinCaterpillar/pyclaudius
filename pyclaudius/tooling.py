@@ -1,13 +1,9 @@
 import asyncio
 import contextlib
-import fcntl
 import logging
 import os
-import pty
 import re
 import signal
-import struct
-import termios
 from collections.abc import Awaitable, Callable
 from functools import wraps
 
@@ -77,19 +73,6 @@ def _strip_ansi(text: str) -> str:
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
 
-
-def _drain_pty_blocking(fd: int) -> bytes:
-    """Read from a PTY master until EOF/error (runs in a thread)."""
-    chunks: list[bytes] = []
-    while True:
-        try:
-            data = os.read(fd, 4096)
-            if not data:
-                break
-            chunks.append(data)
-        except OSError:
-            break
-    return b"".join(chunks)
 
 
 async def refresh_auth(
@@ -170,69 +153,45 @@ async def _refresh_auth_pty(
     cwd: str | None,
     env: dict[str, str],
 ) -> bool:
-    """Spawn Claude interactively via a PTY to trigger an OAuth refresh.
+    """Spawn Claude inside ``script(1)`` for a fully correct PTY session.
 
-    Falls back to SIGTERM if the TUI cannot be navigated.
+    The ``script`` command handles setsid, controlling-terminal setup,
+    and all terminal plumbing that a real login shell would provide.
+    We interact with it via pipes.
     """
-    logger.info(f"Trying interactive PTY refresh (cwd={cwd})")
+    logger.info(f"Trying interactive PTY refresh via script(1) (cwd={cwd})")
 
-    master_fd, slave_fd = pty.openpty()
-
-    with contextlib.suppress(OSError):
-        winsize = struct.pack("HHHH", 24, 80, 0, 0)
-        fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, winsize)
-
-    def _setup_ctty() -> None:
-        """Make the slave PTY the controlling terminal of the child.
-
-        After start_new_session calls setsid(), the child is a session
-        leader without a controlling terminal.  TIOCSCTTY on stdin
-        (already dup2'd to the slave fd) makes it the controlling
-        terminal so /dev/tty works and the CLI enters interactive mode.
-        """
-        fcntl.ioctl(0, termios.TIOCSCTTY, 0)
-
-    # All three fds must be the PTY — Node.js checks isTTY on all of
-    # stdin, stdout, *and* stderr to decide if it's truly interactive.
     try:
         proc = await asyncio.create_subprocess_exec(
-            claude_path,
-            stdin=slave_fd,
-            stdout=slave_fd,
-            stderr=slave_fd,
+            "script", "-qec", claude_path, "/dev/null",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
             env=env,
             cwd=cwd,
-            start_new_session=True,
-            preexec_fn=_setup_ctty,
         )
     except FileNotFoundError:
-        logger.error(f"Claude CLI not found at {claude_path}")
-        os.close(master_fd)
-        os.close(slave_fd)
+        logger.error("'script' or Claude CLI not found")
         return False
-
-    os.close(slave_fd)
-
-    loop = asyncio.get_running_loop()
-    drain_future = loop.run_in_executor(None, _drain_pty_blocking, master_fd)
-
-    async def _pty_write(data: bytes) -> None:
-        await loop.run_in_executor(None, os.write, master_fd, data)
 
     timed_out = False
     try:
-        # Wait for CLI to start and (hopefully) refresh the token as a
-        # side-effect of initialisation.
+        # Wait for CLI to start up inside script's PTY.
         await asyncio.sleep(8)
 
-        # Try to navigate any trust/onboarding dialogs.
-        await _pty_write(b"\r")
+        # Navigate trust/onboarding dialogs.
+        proc.stdin.write(b"\r")
+        await proc.stdin.drain()
         await asyncio.sleep(3)
-        await _pty_write(b"\r")
+        proc.stdin.write(b"\r")
+        await proc.stdin.drain()
         await asyncio.sleep(2)
-        await _pty_write(b"\x1b")
+        # Escape + /exit to leave the REPL.
+        proc.stdin.write(b"\x1b")
+        await proc.stdin.drain()
         await asyncio.sleep(1)
-        await _pty_write(b"/exit\r")
+        proc.stdin.write(b"/exit\r")
+        await proc.stdin.drain()
         await asyncio.sleep(3)
 
         # SIGTERM for graceful shutdown if /exit didn't work.
@@ -241,31 +200,24 @@ async def _refresh_auth_pty(
             with contextlib.suppress(ProcessLookupError):
                 proc.send_signal(signal.SIGTERM)
 
-        await asyncio.wait_for(proc.wait(), timeout=15)
+        stdout, _ = await asyncio.wait_for(
+            proc.communicate(), timeout=15,
+        )
     except TimeoutError:
         timed_out = True
         with contextlib.suppress(ProcessLookupError):
             proc.kill()
-    finally:
-        with contextlib.suppress(OSError):
-            os.close(master_fd)
+        stdout = b""
 
-    pty_output = b""
-    with contextlib.suppress(Exception):
-        pty_output = await drain_future
-
-    pty_text = _strip_ansi(pty_output.decode(errors="replace"))[:2000]
-    raw_hex = pty_output[:800].hex(" ")
-    stderr_text = ""  # stderr is on the PTY now, captured in pty_output
+    output_text = _strip_ansi(stdout.decode(errors="replace"))[:2000]
+    raw_hex = stdout[:800].hex(" ")
 
     if timed_out:
-        logger.error(
-            f"PTY refresh timed out: pty={pty_text!r}, stderr={stderr_text!r}"
-        )
+        logger.error(f"PTY refresh timed out: output={output_text!r}")
     else:
         logger.info(
             f"PTY refresh exited with code {proc.returncode}: "
-            f"pty={pty_text!r}, stderr={stderr_text!r}"
+            f"output={output_text!r}"
         )
     logger.warning(f"PTY refresh raw hex: {raw_hex}")
     return not timed_out and proc.returncode == 0

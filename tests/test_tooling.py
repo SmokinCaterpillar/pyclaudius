@@ -3,7 +3,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from pyclaudius.tooling import (
-    _refresh_auth_pty,
     _try_auth_login,
     authorized,
     check_authorized,
@@ -160,63 +159,48 @@ async def test_try_auth_login_failure_falls_through():
 
 @pytest.mark.asyncio
 async def test_refresh_auth_pty_success():
+    """script-based PTY refresh returns True on exit code 0."""
     proc = AsyncMock()
     proc.returncode = 0
-    proc.communicate.return_value = (None, b"")
-    mock_drain = MagicMock(return_value=b"pty output")
+    proc.stdin = AsyncMock()
+    proc.communicate.return_value = (b"output", None)
     with (
-        patch("pyclaudius.tooling.pty.openpty", return_value=(10, 11)),
-        patch("pyclaudius.tooling.os.close") as mock_close,
-        patch("pyclaudius.tooling.os.write"),
-        patch("pyclaudius.tooling.fcntl.ioctl"),
-        patch("pyclaudius.tooling._drain_pty_blocking", mock_drain),
         patch(
             "pyclaudius.tooling.asyncio.create_subprocess_exec",
             return_value=proc,
         ) as mock_exec,
         patch("pyclaudius.tooling.asyncio.sleep", new_callable=AsyncMock),
-        patch(
-            "pyclaudius.tooling.asyncio.get_running_loop",
-            return_value=MagicMock(run_in_executor=AsyncMock(return_value=b"")),
-        ),
     ):
+        from pyclaudius.tooling import _refresh_auth_pty
+
         env = {"HOME": "/home/x", "TERM": "xterm-256color"}
         result = await _refresh_auth_pty(
             claude_path="/usr/bin/claude", cwd="/tmp/work", env=env,
         )
         assert result is True
         mock_exec.assert_called_once()
-        assert mock_exec.call_args[0] == ("/usr/bin/claude",)
-        assert mock_exec.call_args.kwargs["stdin"] == 11
-        assert mock_exec.call_args.kwargs["stdout"] == 11
+        # Uses script command to wrap claude.
+        assert mock_exec.call_args[0][0] == "script"
+        assert "/usr/bin/claude" in mock_exec.call_args[0]
         assert mock_exec.call_args.kwargs["cwd"] == "/tmp/work"
-        assert mock_exec.call_args.kwargs["start_new_session"] is True
-        assert mock_exec.call_args.kwargs["preexec_fn"] is not None
-        mock_close.assert_any_call(11)
-        proc.communicate.assert_called_once_with()
 
 
 @pytest.mark.asyncio
 async def test_refresh_auth_pty_failure():
+    """script-based PTY refresh returns False on non-zero exit."""
     proc = AsyncMock()
     proc.returncode = 1
-    proc.communicate.return_value = (None, b"error")
+    proc.stdin = AsyncMock()
+    proc.communicate.return_value = (b"error", None)
     with (
-        patch("pyclaudius.tooling.pty.openpty", return_value=(10, 11)),
-        patch("pyclaudius.tooling.os.close"),
-        patch("pyclaudius.tooling.os.write"),
-        patch("pyclaudius.tooling.fcntl.ioctl"),
-        patch("pyclaudius.tooling._drain_pty_blocking", return_value=b""),
         patch(
             "pyclaudius.tooling.asyncio.create_subprocess_exec",
             return_value=proc,
         ),
         patch("pyclaudius.tooling.asyncio.sleep", new_callable=AsyncMock),
-        patch(
-            "pyclaudius.tooling.asyncio.get_running_loop",
-            return_value=MagicMock(run_in_executor=AsyncMock(return_value=b"")),
-        ),
     ):
+        from pyclaudius.tooling import _refresh_auth_pty
+
         env = {"HOME": "/home/x", "TERM": "xterm-256color"}
         result = await _refresh_auth_pty(claude_path="claude", cwd=None, env=env)
         assert result is False
@@ -224,28 +208,22 @@ async def test_refresh_auth_pty_failure():
 
 @pytest.mark.asyncio
 async def test_refresh_auth_pty_timeout():
+    """script-based PTY refresh returns False and kills on timeout."""
     proc = AsyncMock()
-    proc.communicate.return_value = (None, b"")
+    proc.stdin = AsyncMock()
     with (
-        patch("pyclaudius.tooling.pty.openpty", return_value=(10, 11)),
-        patch("pyclaudius.tooling.os.close"),
-        patch("pyclaudius.tooling.os.write"),
-        patch("pyclaudius.tooling.fcntl.ioctl"),
-        patch("pyclaudius.tooling._drain_pty_blocking", return_value=b""),
         patch(
             "pyclaudius.tooling.asyncio.create_subprocess_exec",
             return_value=proc,
         ),
         patch("pyclaudius.tooling.asyncio.sleep", new_callable=AsyncMock),
         patch(
-            "pyclaudius.tooling.asyncio.get_running_loop",
-            return_value=MagicMock(run_in_executor=AsyncMock(return_value=b"")),
-        ),
-        patch(
             "pyclaudius.tooling.asyncio.wait_for",
             side_effect=TimeoutError,
         ),
     ):
+        from pyclaudius.tooling import _refresh_auth_pty
+
         env = {"HOME": "/home/x", "TERM": "xterm-256color"}
         result = await _refresh_auth_pty(claude_path="claude", cwd=None, env=env)
         assert result is False
@@ -349,20 +327,15 @@ async def test_try_auth_login_file_not_found():
 
 @pytest.mark.asyncio
 async def test_refresh_auth_pty_file_not_found():
-    """Returns False and closes both fds when CLI binary is not found."""
-    with (
-        patch("pyclaudius.tooling.pty.openpty", return_value=(10, 11)),
-        patch("pyclaudius.tooling.os.close") as mock_close,
-        patch("pyclaudius.tooling.fcntl.ioctl"),
-        patch(
-            "pyclaudius.tooling.asyncio.create_subprocess_exec",
-            side_effect=FileNotFoundError,
-        ),
+    """Returns False when script or CLI binary is not found."""
+    with patch(
+        "pyclaudius.tooling.asyncio.create_subprocess_exec",
+        side_effect=FileNotFoundError,
     ):
+        from pyclaudius.tooling import _refresh_auth_pty
+
         env = {"HOME": "/home/x"}
         result = await _refresh_auth_pty(
             claude_path="/nonexistent/claude", cwd=None, env=env,
         )
         assert result is False
-        mock_close.assert_any_call(10)
-        mock_close.assert_any_call(11)
