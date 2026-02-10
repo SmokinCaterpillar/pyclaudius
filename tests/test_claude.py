@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -261,6 +261,13 @@ async def test_call_claude_retries_on_auth_error():
             side_effect=dispatcher,
         ),
         patch("asyncio.sleep", new_callable=AsyncMock),
+        patch("pyclaudius.tooling.pty.openpty", return_value=(10, 11)),
+        patch("pyclaudius.tooling.os.close"),
+        patch("pyclaudius.tooling.os.write"),
+        patch(
+            "pyclaudius.tooling.asyncio.get_running_loop",
+            return_value=MagicMock(run_in_executor=AsyncMock()),
+        ),
     ):
         result, session_id = await call_claude(prompt="hello", auto_refresh_auth=True)
         assert result == "Hello from Claude"

@@ -1,6 +1,8 @@
 import asyncio
 import contextlib
 import logging
+import os
+import pty
 from collections.abc import Awaitable, Callable
 from functools import wraps
 
@@ -50,20 +52,25 @@ def is_auth_error(*, response: str) -> bool:
 async def refresh_auth(
     *, claude_path: str = "claude", cwd: str | None = None
 ) -> bool:
-    """Spawn Claude interactively to trigger an OAuth token refresh.
+    """Spawn Claude interactively via a PTY to trigger an OAuth token refresh.
 
-    Waits a few seconds for the CLI to start up and refresh the token,
-    then sends newlines (to dismiss any trust/onboarding screens) followed
-    by ``/exit`` to terminate the session.
+    The Claude CLI (Ink-based) requires a real TTY on stdin to enter
+    interactive mode and perform silent OAuth token refresh.  We allocate
+    a pseudo-terminal for stdin so the CLI detects a TTY, waits for the
+    startup/auth handshake, then sends ``/exit`` to quit cleanly.
+
     Returns True if the process exits with code 0.
     """
     from pyclaudius.claude import _build_subprocess_env
 
     logger.info(f"Attempting OAuth token refresh via {claude_path} (cwd={cwd})")
+
+    # Create a PTY pair so the CLI sees a real terminal on stdin.
+    master_fd, slave_fd = pty.openpty()
     try:
         proc = await asyncio.create_subprocess_exec(
             claude_path,
-            stdin=asyncio.subprocess.PIPE,
+            stdin=slave_fd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=_build_subprocess_env(),
@@ -71,23 +78,36 @@ async def refresh_auth(
         )
     except FileNotFoundError:
         logger.error(f"Claude CLI not found at {claude_path}")
+        os.close(master_fd)
+        os.close(slave_fd)
         return False
 
+    # Close slave in parent — the child process owns it now.
+    os.close(slave_fd)
+
     try:
-        # Give the CLI time to start up, handle trust screens, and refresh
-        # the OAuth token before we send the exit command.
+        # Give the CLI time to start up, handle trust/onboarding screens,
+        # and silently refresh the OAuth token.
         await asyncio.sleep(5)
+
+        # Send newlines to dismiss any prompts, then /exit to quit.
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, os.write, master_fd, b"\n\n/exit\n")
+
         stdout, stderr = await asyncio.wait_for(
-            proc.communicate(input=b"\n\n/exit\n"), timeout=30
+            proc.communicate(), timeout=30
         )
     except TimeoutError:
         logger.error("Token refresh timed out after 30 seconds")
         with contextlib.suppress(ProcessLookupError):
             proc.kill()
         return False
+    finally:
+        with contextlib.suppress(OSError):
+            os.close(master_fd)
 
-    stdout_text = stdout.decode()[:200]
-    stderr_text = stderr.decode()[:200]
+    stdout_text = stdout.decode(errors="replace")[:500]
+    stderr_text = stderr.decode(errors="replace")[:500]
     logger.info(
         f"Token refresh exited with code {proc.returncode}: "
         f"stdout={stdout_text!r}, stderr={stderr_text!r}"
