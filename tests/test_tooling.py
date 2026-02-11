@@ -1,9 +1,12 @@
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from pyclaudius.tooling import (
     _try_auth_login,
+    _try_http_refresh,
     authorized,
     check_authorized,
     is_auth_error,
@@ -339,3 +342,143 @@ async def test_refresh_auth_pty_file_not_found():
             claude_path="/nonexistent/claude", cwd=None, env=env,
         )
         assert result is False
+
+
+_SAMPLE_CREDS = {
+    "claudeAiOauth": {
+        "accessToken": "old-access",
+        "refreshToken": "old-refresh",
+        "expiresAt": "2025-01-01T00:00:00Z",
+        "scopes": ["user:inference", "user:profile"],
+    },
+}
+
+_SAMPLE_RESPONSE = {
+    "access_token": "new-access",
+    "refresh_token": "new-refresh",
+    "expires_at": "2026-07-01T00:00:00Z",
+}
+
+
+@pytest.mark.asyncio
+async def test_try_http_refresh_success(tmp_path: object):
+    """Successful HTTP refresh writes updated credentials."""
+    creds_path = tmp_path / ".credentials.json"  # type: ignore[operator]
+    creds_path.write_text(json.dumps(_SAMPLE_CREDS))
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = _SAMPLE_RESPONSE
+
+    mock_client = AsyncMock()
+    mock_client.post.return_value = mock_response
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with (
+        patch("pyclaudius.tooling._CREDENTIALS_PATH", creds_path),
+        patch("pyclaudius.tooling.httpx.AsyncClient", return_value=mock_client),
+    ):
+        result = await _try_http_refresh()
+
+    assert result is True
+    updated = json.loads(creds_path.read_text())
+    assert updated["claudeAiOauth"]["accessToken"] == "new-access"
+    assert updated["claudeAiOauth"]["refreshToken"] == "new-refresh"
+    assert updated["claudeAiOauth"]["expiresAt"] == "2026-07-01T00:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_try_http_refresh_no_credentials_file(tmp_path: object):
+    """Returns False when credentials file does not exist."""
+    creds_path = tmp_path / ".credentials.json"  # type: ignore[operator]
+    with patch("pyclaudius.tooling._CREDENTIALS_PATH", creds_path):
+        result = await _try_http_refresh()
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_try_http_refresh_no_refresh_token(tmp_path: object):
+    """Returns False when credentials lack a refresh token."""
+    creds_path = tmp_path / ".credentials.json"  # type: ignore[operator]
+    creds_path.write_text(json.dumps({
+        "claudeAiOauth": {"accessToken": "old", "scopes": []},
+    }))
+    with patch("pyclaudius.tooling._CREDENTIALS_PATH", creds_path):
+        result = await _try_http_refresh()
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_try_http_refresh_http_error(tmp_path: object):
+    """Returns False when the server returns a non-200 status."""
+    creds_path = tmp_path / ".credentials.json"  # type: ignore[operator]
+    creds_path.write_text(json.dumps(_SAMPLE_CREDS))
+
+    mock_response = MagicMock()
+    mock_response.status_code = 400
+    mock_response.text = "bad request"
+
+    mock_client = AsyncMock()
+    mock_client.post.return_value = mock_response
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with (
+        patch("pyclaudius.tooling._CREDENTIALS_PATH", creds_path),
+        patch("pyclaudius.tooling.httpx.AsyncClient", return_value=mock_client),
+    ):
+        result = await _try_http_refresh()
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_try_http_refresh_network_error(tmp_path: object):
+    """Returns False when httpx raises a network error."""
+    creds_path = tmp_path / ".credentials.json"  # type: ignore[operator]
+    creds_path.write_text(json.dumps(_SAMPLE_CREDS))
+
+    mock_client = AsyncMock()
+    mock_client.post.side_effect = httpx.ConnectError("connection refused")
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with (
+        patch("pyclaudius.tooling._CREDENTIALS_PATH", creds_path),
+        patch("pyclaudius.tooling.httpx.AsyncClient", return_value=mock_client),
+    ):
+        result = await _try_http_refresh()
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_refresh_auth_tries_http_first():
+    """refresh_auth tries HTTP refresh before auth login and PTY."""
+    with (
+        patch(
+            "pyclaudius.tooling._try_http_refresh", return_value=True,
+        ) as mock_http,
+        patch("pyclaudius.tooling._try_auth_login") as mock_login,
+        patch("pyclaudius.tooling._refresh_auth_pty") as mock_pty,
+    ):
+        result = await refresh_auth(claude_path="claude", cwd="/tmp")
+        assert result is True
+        mock_http.assert_called_once()
+        mock_login.assert_not_called()
+        mock_pty.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_refresh_auth_falls_through_http_to_auth_login():
+    """refresh_auth falls back to auth login when HTTP refresh fails."""
+    with (
+        patch("pyclaudius.tooling._try_http_refresh", return_value=False),
+        patch(
+            "pyclaudius.tooling._try_auth_login", return_value=True,
+        ) as mock_login,
+        patch("pyclaudius.tooling._refresh_auth_pty") as mock_pty,
+    ):
+        result = await refresh_auth(claude_path="claude", cwd="/tmp")
+        assert result is True
+        mock_login.assert_called_once()
+        mock_pty.assert_not_called()

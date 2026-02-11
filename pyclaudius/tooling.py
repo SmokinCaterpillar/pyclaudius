@@ -1,12 +1,15 @@
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import re
 import signal
 from collections.abc import Awaitable, Callable
 from functools import wraps
+from pathlib import Path
 
+import httpx
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -75,30 +78,104 @@ def _strip_ansi(text: str) -> str:
 
 
 
+_OAUTH_ENDPOINT = "https://platform.claude.com/v1/oauth/token"
+_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+_CREDENTIALS_KEY = "claudeAiOauth"
+_CREDENTIALS_PATH = Path.home() / ".claude" / ".credentials.json"
+
+
+async def _try_http_refresh() -> bool:
+    """Refresh the OAuth token via a direct HTTP POST.
+
+    Reads the refresh token from ``~/.claude/.credentials.json``,
+    exchanges it for a new access token, and writes the updated
+    credentials back to disk.
+
+    Returns True on success, False on any failure.
+    """
+    try:
+        creds_text = _CREDENTIALS_PATH.read_text(encoding="utf-8")
+        creds = json.loads(creds_text)
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning(f"HTTP refresh: cannot read credentials file: {exc}")
+        return False
+
+    oauth = creds.get(_CREDENTIALS_KEY)
+    if not oauth or not oauth.get("refreshToken"):
+        logger.warning("HTTP refresh: no refresh token in credentials")
+        return False
+
+    payload = {
+        "grant_type": "refresh_token",
+        "refresh_token": oauth["refreshToken"],
+        "client_id": _OAUTH_CLIENT_ID,
+        "scope": " ".join(oauth.get("scopes", [])),
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(_OAUTH_ENDPOINT, json=payload)
+    except httpx.HTTPError as exc:
+        logger.warning(f"HTTP refresh: network error: {exc}")
+        return False
+
+    if resp.status_code != 200:
+        logger.warning(
+            f"HTTP refresh: server returned {resp.status_code}: "
+            f"{resp.text[:500]}"
+        )
+        return False
+
+    try:
+        data = resp.json()
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.warning(f"HTTP refresh: invalid JSON response: {exc}")
+        return False
+
+    oauth["accessToken"] = data["access_token"]
+    oauth["refreshToken"] = data["refresh_token"]
+    oauth["expiresAt"] = data["expires_at"]
+
+    try:
+        _CREDENTIALS_PATH.write_text(
+            json.dumps(creds, indent=2) + "\n", encoding="utf-8",
+        )
+    except OSError as exc:
+        logger.warning(f"HTTP refresh: cannot write credentials file: {exc}")
+        return False
+
+    logger.info("HTTP refresh: token refreshed successfully")
+    return True
+
+
 async def refresh_auth(
     *, claude_path: str = "claude", cwd: str | None = None
 ) -> bool:
     """Attempt to refresh the Claude CLI OAuth token.
 
-    Tries ``claude auth login`` first (pipe-based, no PTY needed).
-    Falls back to spawning an interactive PTY session if that fails.
+    Tries direct HTTP token refresh first, then ``claude auth login``,
+    and falls back to spawning an interactive PTY session.
 
-    Returns True if any approach exits with code 0.
+    Returns True if any approach succeeds.
     """
+    # --- Approach 1: direct HTTP token refresh (most reliable) ---
+    if await _try_http_refresh():
+        return True
+
     # Use a permissive environment for the refresh — the CLI may need vars
     # like USER, LANG, XDG_*, NODE_*, etc. that _build_subprocess_env strips.
     # Only secrets are removed.
     env = {k: v for k, v in os.environ.items() if k not in _SECRET_ENV_VARS}
     env["TERM"] = "xterm-256color"
 
-    # --- Approach 1: `claude auth login` via pipes (simple, no PTY) ---
+    # --- Approach 2: `claude auth login` via pipes ---
     result = await _try_auth_login(
         claude_path=claude_path, cwd=cwd, env=env,
     )
     if result is not None:
         return result
 
-    # --- Approach 2: interactive PTY session ---
+    # --- Approach 3: interactive PTY session (last resort) ---
     return await _refresh_auth_pty(
         claude_path=claude_path, cwd=cwd, env=env,
     )
