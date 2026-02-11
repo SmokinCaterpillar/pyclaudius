@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -7,6 +8,7 @@ from pyclaudius.handlers import (
     handle_forget_command,
     handle_help_command,
     handle_listmemory_command,
+    handle_login_command,
     handle_photo,
     handle_remember_command,
     handle_text,
@@ -457,3 +459,108 @@ async def test_handle_text_includes_mcp_allowed_tools(tmp_path):
         await handle_text(update, context)
         tools_arg = mock_claude.call_args.kwargs["allowed_tools"]
         assert tools_arg == ["WebSearch", "mcp__pyclaudius__*"]
+
+
+@pytest.mark.asyncio
+async def test_handle_text_intercepts_auth_reply(tmp_path):
+    """When auth_pending_reply Future exists, message resolves it and returns."""
+    update = _make_update(text="myauthcode123")
+    context = _make_context(tmp_path)
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[str] = loop.create_future()
+    context.bot_data["auth_pending_reply"] = future
+
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
+        await handle_text(update, context)
+        mock_claude.assert_not_called()
+
+    assert future.done()
+    assert future.result() == "myauthcode123"
+
+
+@pytest.mark.asyncio
+async def test_handle_text_passes_auth_callbacks(tmp_path):
+    """call_claude receives auth_send_message and auth_wait_for_reply kwargs."""
+    update = _make_update(text="hello")
+    context = _make_context(tmp_path)
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
+        mock_claude.return_value = ("Hi!", None)
+        await handle_text(update, context)
+        kwargs = mock_claude.call_args.kwargs
+        assert "auth_send_message" in kwargs
+        assert "auth_wait_for_reply" in kwargs
+        assert callable(kwargs["auth_send_message"])
+        assert callable(kwargs["auth_wait_for_reply"])
+
+
+@pytest.mark.asyncio
+async def test_handle_text_ignores_done_auth_future(tmp_path):
+    """A completed Future in auth_pending_reply is ignored — normal flow continues."""
+    update = _make_update(text="hello")
+    context = _make_context(tmp_path)
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[str] = loop.create_future()
+    future.set_result("already-done")
+    context.bot_data["auth_pending_reply"] = future
+
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
+        mock_claude.return_value = ("Hi!", None)
+        await handle_text(update, context)
+        mock_claude.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_handle_login_command_success(tmp_path):
+    """Login command calls interactive_login and reports success."""
+    update = _make_update(text="/login")
+    context = _make_context(tmp_path)
+    with patch(
+        "pyclaudius.login.interactive_login", new_callable=AsyncMock
+    ) as mock_login:
+        mock_login.return_value = True
+        await handle_login_command(update, context)
+        mock_login.assert_called_once()
+
+    replies = [call.args[0] for call in update.message.reply_text.call_args_list]
+    assert "Starting interactive login..." in replies
+    assert "Login successful!" in replies
+
+
+@pytest.mark.asyncio
+async def test_handle_login_command_failure(tmp_path):
+    """Login command reports failure when interactive_login returns False."""
+    update = _make_update(text="/login")
+    context = _make_context(tmp_path)
+    with patch(
+        "pyclaudius.login.interactive_login", new_callable=AsyncMock
+    ) as mock_login:
+        mock_login.return_value = False
+        await handle_login_command(update, context)
+
+    replies = [call.args[0] for call in update.message.reply_text.call_args_list]
+    assert "Login failed. Check bot logs for details." in replies
+
+
+@pytest.mark.asyncio
+async def test_handle_login_command_unauthorized(tmp_path):
+    """Unauthorized user gets rejected."""
+    update = _make_update(user_id=99999, text="/login")
+    context = _make_context(tmp_path)
+    await handle_login_command(update, context)
+    update.message.reply_text.assert_called_once_with("This bot is private.")
+
+
+@pytest.mark.asyncio
+async def test_handle_help_command_shows_login(tmp_path):
+    """Help text includes /login command."""
+    update = _make_update()
+    context = _make_context(tmp_path)
+    await handle_help_command(update, context)
+    reply = update.message.reply_text.call_args[0][0]
+    assert "/login" in reply

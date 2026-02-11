@@ -1,15 +1,7 @@
-import asyncio
-import contextlib
-import json
 import logging
-import os
-import re
-import signal
 from collections.abc import Awaitable, Callable
 from functools import wraps
-from pathlib import Path
 
-import httpx
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -47,302 +39,57 @@ _AUTH_ERROR_MARKERS: tuple[str, ...] = (
     "API Error: 401",
 )
 
-# Env vars that must never be passed to a Claude CLI subprocess.
-_SECRET_ENV_VARS: frozenset[str] = frozenset({
-    "TELEGRAM_BOT_TOKEN",
-    "TELEGRAM_USER_ID",
-    "ANTHROPIC_API_KEY",
-})
-
 
 def is_auth_error(*, response: str) -> bool:
     """Check if a response contains authentication error indicators."""
     return any(marker in response for marker in _AUTH_ERROR_MARKERS)
 
 
-_ANSI_RE = re.compile(
-    r"\x1b\[[0-9;?]*[A-Za-z]"       # CSI sequences (e.g. colors, cursor)
-    r"|\x1b\[<[0-9;]*[A-Za-z]"      # Kitty keyboard protocol (e.g. \x1b[<u)
-    r"|\x1b\].*?\x07"               # OSC sequences
-    r"|\x1b[()][A-Z0-9]"            # Character set selection
-)
-
-
-def _strip_ansi(text: str) -> str:
-    """Remove ANSI escape sequences and collapse whitespace."""
-    cleaned = _ANSI_RE.sub("", text)
-    # Collapse runs of whitespace but keep newlines visible.
-    cleaned = re.sub(r"[^\S\n]+", " ", cleaned)
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
-    return cleaned.strip()
-
-
-
-_OAUTH_ENDPOINT = "https://platform.claude.com/v1/oauth/token"
-_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-_CREDENTIALS_KEY = "claudeAiOauth"
-_CREDENTIALS_PATH = Path.home() / ".claude" / ".credentials.json"
-
-
-async def _try_http_refresh() -> bool:
-    """Refresh the OAuth token via a direct HTTP POST.
-
-    Reads the refresh token from ``~/.claude/.credentials.json``,
-    exchanges it for a new access token, and writes the updated
-    credentials back to disk.
-
-    Returns True on success, False on any failure.
-    """
-    try:
-        creds_text = _CREDENTIALS_PATH.read_text(encoding="utf-8")
-        creds = json.loads(creds_text)
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.warning(f"HTTP refresh: cannot read credentials file: {exc}")
-        return False
-
-    oauth = creds.get(_CREDENTIALS_KEY)
-    if not oauth or not oauth.get("refreshToken"):
-        logger.warning("HTTP refresh: no refresh token in credentials")
-        return False
-
-    payload = {
-        "grant_type": "refresh_token",
-        "refresh_token": oauth["refreshToken"],
-        "client_id": _OAUTH_CLIENT_ID,
-        "scope": " ".join(oauth.get("scopes", [])),
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(_OAUTH_ENDPOINT, data=payload)
-    except httpx.HTTPError as exc:
-        logger.warning(f"HTTP refresh: network error: {exc}")
-        return False
-
-    if resp.status_code != 200:
-        logger.warning(
-            f"HTTP refresh: server returned {resp.status_code}: "
-            f"{resp.text[:500]}"
-        )
-        return False
-
-    try:
-        data = resp.json()
-    except (json.JSONDecodeError, ValueError) as exc:
-        logger.warning(f"HTTP refresh: invalid JSON response: {exc}")
-        return False
-
-    logger.info(f"HTTP refresh: response keys: {sorted(data.keys())}")
-
-    try:
-        oauth["accessToken"] = data["accessToken"]
-        oauth["refreshToken"] = data["refreshToken"]
-    except KeyError as exc:
-        logger.warning(f"HTTP refresh: missing required field: {exc}")
-        return False
-
-    # expiresAt in the credentials file is a Unix timestamp in milliseconds.
-    # The server may return expiresAt (epoch ms) or expiresIn (seconds).
-    if "expiresAt" in data:
-        oauth["expiresAt"] = data["expiresAt"]
-    elif "expiresIn" in data:
-        import time
-
-        oauth["expiresAt"] = int((time.time() + data["expiresIn"]) * 1000)
-
-    try:
-        _CREDENTIALS_PATH.write_text(
-            json.dumps(creds, indent=2) + "\n", encoding="utf-8",
-        )
-    except OSError as exc:
-        logger.warning(f"HTTP refresh: cannot write credentials file: {exc}")
-        return False
-
-    logger.info("HTTP refresh: token refreshed successfully")
-    return True
-
-
-async def refresh_auth(
-    *, claude_path: str = "claude", cwd: str | None = None
-) -> bool:
-    """Attempt to refresh the Claude CLI OAuth token.
-
-    Tries direct HTTP token refresh first, then ``claude auth login``,
-    and falls back to spawning an interactive PTY session.
-
-    Returns True if any approach succeeds.
-    """
-    # --- Approach 1: direct HTTP token refresh (most reliable) ---
-    if await _try_http_refresh():
-        return True
-
-    # Use a permissive environment for the refresh — the CLI may need vars
-    # like USER, LANG, XDG_*, NODE_*, etc. that _build_subprocess_env strips.
-    # Only secrets are removed.
-    env = {k: v for k, v in os.environ.items() if k not in _SECRET_ENV_VARS}
-    env["TERM"] = "xterm-256color"
-
-    # --- Approach 2: `claude auth login` via pipes ---
-    result = await _try_auth_login(
-        claude_path=claude_path, cwd=cwd, env=env,
-    )
-    if result is not None:
-        return result
-
-    # --- Approach 3: interactive PTY session (last resort) ---
-    return await _refresh_auth_pty(
-        claude_path=claude_path, cwd=cwd, env=env,
-    )
-
-
-async def _try_auth_login(
-    *, claude_path: str, cwd: str | None, env: dict[str, str],
-) -> bool | None:
-    """Try ``claude auth login`` via pipes.
-
-    Returns True/False on success/failure, or None if the subcommand
-    does not exist (so the caller can fall back).
-    """
-    logger.info(f"Trying 'claude auth login' (cwd={cwd})")
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            claude_path, "auth", "login",
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-            cwd=cwd,
-        )
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=30,
-        )
-    except FileNotFoundError:
-        logger.error(f"Claude CLI not found at {claude_path}")
-        return False
-    except TimeoutError:
-        logger.warning("'claude auth login' timed out after 30s")
-        with contextlib.suppress(ProcessLookupError):
-            proc.kill()
-        return None
-
-    stdout_text = stdout.decode(errors="replace")[:1000]
-    stderr_text = stderr.decode(errors="replace")[:1000]
-    logger.warning(
-        f"'claude auth login' exited {proc.returncode}: "
-        f"stdout={stdout_text!r}, stderr={stderr_text!r}"
-    )
-
-    # Only return True on success; any failure falls through to PTY.
-    if proc.returncode == 0:
-        return True
-    return None
-
-
-async def _refresh_auth_pty(
-    *,
-    claude_path: str,
-    cwd: str | None,
-    env: dict[str, str],
-) -> bool:
-    """Spawn Claude inside ``script(1)`` for a fully correct PTY session.
-
-    The ``script`` command handles setsid, controlling-terminal setup,
-    and all terminal plumbing that a real login shell would provide.
-    We interact with it via pipes.
-    """
-    logger.info(f"Trying interactive PTY refresh via script(1) (cwd={cwd})")
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "script", "-qec", claude_path, "/dev/null",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            env=env,
-            cwd=cwd,
-        )
-    except FileNotFoundError:
-        logger.error("'script' or Claude CLI not found")
-        return False
-
-    timed_out = False
-    try:
-        # Wait for CLI to start up inside script's PTY.
-        await asyncio.sleep(8)
-
-        # Navigate trust/onboarding dialogs.
-        proc.stdin.write(b"\r")
-        await proc.stdin.drain()
-        await asyncio.sleep(3)
-        proc.stdin.write(b"\r")
-        await proc.stdin.drain()
-        await asyncio.sleep(2)
-        # Escape + /exit to leave the REPL.
-        proc.stdin.write(b"\x1b")
-        await proc.stdin.drain()
-        await asyncio.sleep(1)
-        proc.stdin.write(b"/exit\r")
-        await proc.stdin.drain()
-        await asyncio.sleep(3)
-
-        # SIGTERM for graceful shutdown if /exit didn't work.
-        if proc.returncode is None:
-            logger.info("CLI still running after /exit, sending SIGTERM...")
-            with contextlib.suppress(ProcessLookupError):
-                proc.send_signal(signal.SIGTERM)
-
-        stdout, _ = await asyncio.wait_for(
-            proc.communicate(), timeout=15,
-        )
-    except TimeoutError:
-        timed_out = True
-        with contextlib.suppress(ProcessLookupError):
-            proc.kill()
-        stdout = b""
-
-    output_text = _strip_ansi(stdout.decode(errors="replace"))[:2000]
-    raw_hex = stdout[:800].hex(" ")
-
-    if timed_out:
-        logger.error(f"PTY refresh timed out: output={output_text!r}")
-    else:
-        logger.info(
-            f"PTY refresh exited with code {proc.returncode}: "
-            f"output={output_text!r}"
-        )
-    logger.warning(f"PTY refresh raw hex: {raw_hex}")
-    return not timed_out and proc.returncode == 0
-
-
 def with_auth_retry(
     func: Callable[..., Awaitable[tuple[str, str | None]]],
 ) -> Callable[..., Awaitable[tuple[str, str | None]]]:
-    """Retry *func* once after refreshing the OAuth token on auth errors.
+    """Retry *func* once after an interactive OAuth login on auth errors.
 
-    Always retries after the refresh attempt, even if ``refresh_auth``
-    reported failure.  The interactive CLI may refresh the token as a
-    side-effect (e.g. before showing a trust dialog) and then time out
-    on a subsequent screen.  Retrying catches that case.
+    Pops ``auto_refresh_auth``, ``auth_send_message``, and
+    ``auth_wait_for_reply`` from *kwargs* before forwarding to *func*.
+
+    When callbacks are provided and an auth error is detected, spawns
+    ``interactive_login`` (from ``pyclaudius.login``) and retries on success.
+    Without callbacks the auth error response is returned as-is.
     """
 
     @wraps(func)
     async def wrapper(**kwargs: object) -> tuple[str, str | None]:
-        auto_refresh = kwargs.pop("auto_refresh_auth", False)
+        auto_refresh: bool = bool(kwargs.pop("auto_refresh_auth", False))
+        send_message = kwargs.pop("auth_send_message", None)
+        wait_for_reply = kwargs.pop("auth_wait_for_reply", None)
+
         response, session_id = await func(**kwargs)
-        if auto_refresh and is_auth_error(response=response):
-            logger.warning("Auth error detected, attempting token refresh...")
-            refreshed = await refresh_auth(
-                claude_path=str(kwargs.get("claude_path", "claude")),
-                cwd=str(kwargs["cwd"]) if kwargs.get("cwd") else None,
-            )
-            if refreshed:
-                logger.info("Token refreshed successfully, retrying...")
-            else:
-                logger.warning(
-                    "Token refresh exited unsuccessfully, "
-                    "retrying anyway (token may have been refreshed as side-effect)..."
-                )
+
+        if not auto_refresh or not is_auth_error(response=response):
+            return response, session_id
+
+        if send_message is None or wait_for_reply is None:
+            logger.warning("Auth error detected but no auth callbacks provided")
+            return response, session_id
+
+        logger.warning("Auth error detected, starting interactive login...")
+
+        from pyclaudius.login import interactive_login
+
+        refreshed = await interactive_login(
+            claude_path=str(kwargs.get("claude_path", "claude")),
+            cwd=str(kwargs["cwd"]) if kwargs.get("cwd") else None,
+            send_message=send_message,
+            wait_for_reply=wait_for_reply,
+        )
+
+        if refreshed:
+            logger.info("Interactive login succeeded, retrying...")
             response, session_id = await func(**kwargs)
+        else:
+            logger.warning("Interactive login failed, returning original error")
+
         return response, session_id
 
     return wrapper

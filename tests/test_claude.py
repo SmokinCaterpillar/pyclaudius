@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -229,6 +229,7 @@ async def test_call_claude_passes_sanitized_env(mock_process):
 
 @pytest.mark.asyncio
 async def test_call_claude_retries_on_auth_error():
+    """Retries after interactive_login succeeds on auth error."""
     auth_error_proc = AsyncMock()
     auth_error_proc.returncode = 0
     auth_error_proc.communicate.return_value = (
@@ -240,36 +241,29 @@ async def test_call_claude_retries_on_auth_error():
     success_proc.returncode = 0
     success_proc.communicate.return_value = (b"Hello from Claude", b"")
 
-    refresh_proc = AsyncMock()
-    refresh_proc.returncode = 0
-    refresh_proc.communicate.return_value = (b"", b"")
-
-    # Both modules share the same asyncio object, so we must use a single
-    # mock and dispatch based on args (``-p`` flag == call_claude).
     call_count = 0
 
     async def dispatcher(*args, **kwargs):
         nonlocal call_count
-        if "-p" in args:
-            call_count += 1
-            return auth_error_proc if call_count == 1 else success_proc
-        return refresh_proc
+        call_count += 1
+        return auth_error_proc if call_count == 1 else success_proc
 
     with (
         patch(
-            "asyncio.create_subprocess_exec",
+            "pyclaudius.claude.asyncio.create_subprocess_exec",
             side_effect=dispatcher,
         ),
-        patch("asyncio.sleep", new_callable=AsyncMock),
-        patch("pyclaudius.tooling.pty.openpty", return_value=(10, 11)),
-        patch("pyclaudius.tooling.os.close"),
-        patch("pyclaudius.tooling.os.write"),
         patch(
-            "pyclaudius.tooling.asyncio.get_running_loop",
-            return_value=MagicMock(run_in_executor=AsyncMock(return_value=b"")),
+            "pyclaudius.login.interactive_login",
+            return_value=True,
         ),
     ):
-        result, session_id = await call_claude(prompt="hello", auto_refresh_auth=True)
+        result, session_id = await call_claude(
+            prompt="hello",
+            auto_refresh_auth=True,
+            auth_send_message=AsyncMock(),
+            auth_wait_for_reply=AsyncMock(),
+        )
         assert result == "Hello from Claude"
         assert session_id is not None
         assert call_count == 2

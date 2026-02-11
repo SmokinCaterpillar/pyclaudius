@@ -1,6 +1,8 @@
+import asyncio
 import contextlib
 import logging
 import os
+from collections.abc import Awaitable, Callable
 
 from telegram import Update
 from telegram.constants import ChatAction
@@ -39,6 +41,30 @@ def _get_allowed_tools(*, settings: Settings, bot_data: dict) -> list[str]:
     return list(settings.allowed_tools) + mcp_tools
 
 
+def _make_auth_callbacks(
+    *, update: Update, context: ContextTypes.DEFAULT_TYPE,
+) -> tuple[Callable[[str], Awaitable[None]], Callable[[], Awaitable[str]]]:
+    """Build (send_message, wait_for_reply) callbacks for interactive login.
+
+    ``send_message`` relays a message to the Telegram user.
+    ``wait_for_reply`` creates a Future in ``bot_data["auth_pending_reply"]``
+    and awaits it — the next incoming message will resolve it.
+    """
+
+    async def send_message(text: str) -> None:
+        await update.message.reply_text(text)
+
+    async def wait_for_reply() -> str:
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[str] = loop.create_future()
+        context.bot_data["auth_pending_reply"] = future
+        try:
+            return await future
+        finally:
+            context.bot_data.pop("auth_pending_reply", None)
+
+    return send_message, wait_for_reply
+
 
 @authorized
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -47,6 +73,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     session: dict = context.bot_data["session"]
 
     if not update.message or not update.message.text:
+        return
+
+    # Auth-code interception — MUST be before claude_lock to avoid deadlock.
+    auth_future: asyncio.Future[str] | None = context.bot_data.get("auth_pending_reply")
+    if auth_future is not None and not auth_future.done():
+        auth_future.set_result(update.message.text)
         return
 
     scheduled_ids: set[int] = context.bot_data.get("_scheduled_update_ids", set())
@@ -69,6 +101,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         timezone=user_tz,
     )
 
+    auth_send, auth_wait = _make_auth_callbacks(update=update, context=context)
     claude_lock = context.bot_data.get("claude_lock")
     if claude_lock:
         async with claude_lock:
@@ -80,6 +113,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
                 cwd=str(settings.claude_work_dir),
                 auto_refresh_auth=settings.auto_refresh_auth,
+                auth_send_message=auth_send,
+                auth_wait_for_reply=auth_wait,
             )
     else:
         response, new_session_id = await call_claude(
@@ -90,6 +125,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
             cwd=str(settings.claude_work_dir),
             auto_refresh_auth=settings.auto_refresh_auth,
+            auth_send_message=auth_send,
+            auth_wait_for_reply=auth_wait,
         )
 
     if new_session_id:
@@ -118,6 +155,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not update.message or not update.message.photo:
         return
 
+    # Auth-code interception — MUST be before claude_lock to avoid deadlock.
+    auth_future: asyncio.Future[str] | None = context.bot_data.get("auth_pending_reply")
+    if auth_future is not None and not auth_future.done():
+        auth_future.set_result(update.message.caption or "")
+        return
+
     logger.info(f"Photo from {update.effective_user.id}")
     await update.message.chat.send_action(action=ChatAction.TYPING)
 
@@ -139,6 +182,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         timezone=user_tz,
     )
 
+    auth_send, auth_wait = _make_auth_callbacks(update=update, context=context)
     claude_lock = context.bot_data.get("claude_lock")
     if claude_lock:
         async with claude_lock:
@@ -151,6 +195,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
                 cwd=str(settings.claude_work_dir),
                 auto_refresh_auth=settings.auto_refresh_auth,
+                auth_send_message=auth_send,
+                auth_wait_for_reply=auth_wait,
             )
     else:
         response, new_session_id = await call_claude(
@@ -162,6 +208,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
             cwd=str(settings.claude_work_dir),
             auto_refresh_auth=settings.auto_refresh_auth,
+            auth_send_message=auth_send,
+            auth_wait_for_reply=auth_wait,
         )
 
     if new_session_id:
@@ -187,6 +235,12 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not update.message or not update.message.document:
         return
 
+    # Auth-code interception — MUST be before claude_lock to avoid deadlock.
+    auth_future: asyncio.Future[str] | None = context.bot_data.get("auth_pending_reply")
+    if auth_future is not None and not auth_future.done():
+        auth_future.set_result(update.message.caption or update.message.text or "")
+        return
+
     doc = update.message.document
     logger.info(f"Document from {update.effective_user.id}: {doc.file_name}")
     await update.message.chat.send_action(action=ChatAction.TYPING)
@@ -209,6 +263,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         timezone=user_tz,
     )
 
+    auth_send, auth_wait = _make_auth_callbacks(update=update, context=context)
     claude_lock = context.bot_data.get("claude_lock")
     if claude_lock:
         async with claude_lock:
@@ -221,6 +276,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
                 cwd=str(settings.claude_work_dir),
                 auto_refresh_auth=settings.auto_refresh_auth,
+                auth_send_message=auth_send,
+                auth_wait_for_reply=auth_wait,
             )
     else:
         response, new_session_id = await call_claude(
@@ -232,6 +289,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
             cwd=str(settings.claude_work_dir),
             auto_refresh_auth=settings.auto_refresh_auth,
+            auth_send_message=auth_send,
+            auth_wait_for_reply=auth_wait,
         )
 
     if new_session_id:
@@ -369,6 +428,35 @@ async def handle_timezone_command(
 
 
 @authorized
+async def handle_login_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    """Handle /login command — trigger interactive OAuth login."""
+    settings: Settings = context.bot_data["settings"]
+
+    if not update.message:
+        return
+
+    auth_send, auth_wait = _make_auth_callbacks(update=update, context=context)
+
+    await update.message.reply_text("Starting interactive login...")
+
+    from pyclaudius.login import interactive_login
+
+    success = await interactive_login(
+        claude_path=settings.claude_path,
+        cwd=str(settings.claude_work_dir),
+        send_message=auth_send,
+        wait_for_reply=auth_wait,
+    )
+
+    if success:
+        await update.message.reply_text("Login successful!")
+    else:
+        await update.message.reply_text("Login failed. Check bot logs for details.")
+
+
+@authorized
 async def handle_help_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -387,7 +475,8 @@ async def handle_help_command(
         "/schedule <datetime> | <prompt> \u2014 schedule a one-time task\n"
         "/listcron \u2014 list all scheduled jobs\n"
         "/removecron <number> \u2014 remove a scheduled job by number\n"
-        "/testcron <number> \u2014 immediately test a scheduled job\n\n"
+        "/testcron <number> \u2014 immediately test a scheduled job\n"
+        "/login \u2014 trigger interactive OAuth login\n\n"
         "Text, photo, and document messages are forwarded to Claude."
     )
     await update.message.reply_text(help_text)

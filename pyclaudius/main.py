@@ -31,6 +31,7 @@ from pyclaudius.handlers import (
     handle_forget_command,
     handle_help_command,
     handle_listmemory_command,
+    handle_login_command,
     handle_photo,
     handle_remember_command,
     handle_text,
@@ -208,6 +209,7 @@ def main() -> None:
     app.add_handler(CommandHandler("listcron", handle_listcron_command))
     app.add_handler(CommandHandler("removecron", handle_removecron_command))
     app.add_handler(CommandHandler("testcron", handle_testcron_command))
+    app.add_handler(CommandHandler("login", handle_login_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
