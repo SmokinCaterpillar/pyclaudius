@@ -132,9 +132,23 @@ async def _try_http_refresh() -> bool:
         logger.warning(f"HTTP refresh: invalid JSON response: {exc}")
         return False
 
-    oauth["accessToken"] = data["access_token"]
-    oauth["refreshToken"] = data["refresh_token"]
-    oauth["expiresAt"] = data["expires_at"]
+    logger.info(f"HTTP refresh: response keys: {sorted(data.keys())}")
+
+    try:
+        oauth["accessToken"] = data["accessToken"]
+        oauth["refreshToken"] = data["refreshToken"]
+    except KeyError as exc:
+        logger.warning(f"HTTP refresh: missing required field: {exc}")
+        return False
+
+    # expiresAt in the credentials file is a Unix timestamp in milliseconds.
+    # The server may return expiresAt (epoch ms) or expiresIn (seconds).
+    if "expiresAt" in data:
+        oauth["expiresAt"] = data["expiresAt"]
+    elif "expiresIn" in data:
+        import time
+
+        oauth["expiresAt"] = int((time.time() + data["expiresIn"]) * 1000)
 
     try:
         _CREDENTIALS_PATH.write_text(

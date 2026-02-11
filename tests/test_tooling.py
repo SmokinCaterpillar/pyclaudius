@@ -348,15 +348,15 @@ _SAMPLE_CREDS = {
     "claudeAiOauth": {
         "accessToken": "old-access",
         "refreshToken": "old-refresh",
-        "expiresAt": "2025-01-01T00:00:00Z",
+        "expiresAt": 1770000000000,
         "scopes": ["user:inference", "user:profile"],
     },
 }
 
 _SAMPLE_RESPONSE = {
-    "access_token": "new-access",
-    "refresh_token": "new-refresh",
-    "expires_at": "2026-07-01T00:00:00Z",
+    "accessToken": "new-access",
+    "refreshToken": "new-refresh",
+    "expiresAt": 1780000000000,
 }
 
 
@@ -385,7 +385,42 @@ async def test_try_http_refresh_success(tmp_path: object):
     updated = json.loads(creds_path.read_text())
     assert updated["claudeAiOauth"]["accessToken"] == "new-access"
     assert updated["claudeAiOauth"]["refreshToken"] == "new-refresh"
-    assert updated["claudeAiOauth"]["expiresAt"] == "2026-07-01T00:00:00Z"
+    assert updated["claudeAiOauth"]["expiresAt"] == 1780000000000
+
+
+@pytest.mark.asyncio
+async def test_try_http_refresh_success_expires_in(tmp_path: object):
+    """Successful HTTP refresh with expires_in (seconds) instead of expires_at."""
+    creds_path = tmp_path / ".credentials.json"  # type: ignore[operator]
+    creds_path.write_text(json.dumps(_SAMPLE_CREDS))
+
+    response_data = {
+        "accessToken": "new-access",
+        "refreshToken": "new-refresh",
+        "expiresIn": 3600,
+    }
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = response_data
+
+    mock_client = AsyncMock()
+    mock_client.post.return_value = mock_response
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with (
+        patch("pyclaudius.tooling._CREDENTIALS_PATH", creds_path),
+        patch("pyclaudius.tooling.httpx.AsyncClient", return_value=mock_client),
+    ):
+        result = await _try_http_refresh()
+
+    assert result is True
+    updated = json.loads(creds_path.read_text())
+    assert updated["claudeAiOauth"]["accessToken"] == "new-access"
+    assert updated["claudeAiOauth"]["refreshToken"] == "new-refresh"
+    # expiresAt should be an integer (Unix epoch in milliseconds)
+    assert isinstance(updated["claudeAiOauth"]["expiresAt"], int)
+    assert updated["claudeAiOauth"]["expiresAt"] > 1_000_000_000_000
 
 
 @pytest.mark.asyncio
