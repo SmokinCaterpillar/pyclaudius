@@ -114,7 +114,7 @@ async def _try_http_refresh() -> bool:
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(_OAUTH_ENDPOINT, json=payload)
+            resp = await client.post(_OAUTH_ENDPOINT, data=payload)
     except httpx.HTTPError as exc:
         logger.warning(f"HTTP refresh: network error: {exc}")
         return False
