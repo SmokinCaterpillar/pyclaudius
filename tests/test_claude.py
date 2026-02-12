@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -228,62 +228,8 @@ async def test_call_claude_passes_sanitized_env(mock_process):
 
 
 @pytest.mark.asyncio
-async def test_call_claude_retries_on_auth_error():
-    auth_error_proc = AsyncMock()
-    auth_error_proc.returncode = 0
-    auth_error_proc.communicate.return_value = (
-        b'{"type":"error","error":{"type":"authentication_error"}}',
-        b"",
-    )
-
-    success_proc = AsyncMock()
-    success_proc.returncode = 0
-    success_proc.communicate.return_value = (b"Hello from Claude", b"")
-
-    refresh_proc = AsyncMock()
-    refresh_proc.returncode = 0
-    refresh_proc.communicate.return_value = (b"", b"")
-
-    # Both modules share the same asyncio object, so we must use a single
-    # mock and dispatch based on args (``-p`` flag == call_claude).
-    call_count = 0
-
-    async def dispatcher(*args, **kwargs):
-        nonlocal call_count
-        if "-p" in args:
-            call_count += 1
-            return auth_error_proc if call_count == 1 else success_proc
-        return refresh_proc
-
-    with patch(
-        "asyncio.create_subprocess_exec",
-        side_effect=dispatcher,
-    ):
-        result, session_id = await call_claude(prompt="hello", auto_refresh_auth=True)
-        assert result == "Hello from Claude"
-        assert session_id is not None
-        assert call_count == 2
-
-
-@pytest.mark.asyncio
-async def test_call_claude_no_retry_on_normal_error():
-    proc = AsyncMock()
-    proc.returncode = 0
-    proc.communicate.return_value = (b"Some normal response", b"")
-
-    with patch(
-        "pyclaudius.claude.asyncio.create_subprocess_exec",
-        return_value=proc,
-    ) as mock_exec:
-        result, _ = await call_claude(prompt="hello")
-        assert result == "Some normal response"
-        mock_exec.assert_called_once()
-
-
-
-@pytest.mark.asyncio
-async def test_call_claude_no_retry_when_auto_refresh_disabled():
-    """Auth error response returned as-is when auto_refresh_auth is False (default)."""
+async def test_call_claude_backlog_saves_on_auth_error(tmp_path):
+    """Auth error with bot_data triggers backlog save via decorator."""
     proc = AsyncMock()
     proc.returncode = 0
     proc.communicate.return_value = (
@@ -291,6 +237,51 @@ async def test_call_claude_no_retry_when_auto_refresh_disabled():
         b"",
     )
 
+    backlog_file = tmp_path / "backlog.json"
+    bot_data = {
+        "settings": MagicMock(backlog_enabled=True, backlog_file=backlog_file),
+        "backlog": [],
+    }
+
+    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=proc):
+        result, session_id = await call_claude(
+            prompt="hello",
+            bot_data=bot_data,
+            user_message="original question",
+        )
+        assert "Authentication error" in result
+        assert session_id is None
+        assert len(bot_data["backlog"]) == 1
+        assert bot_data["backlog"][0]["prompt"] == "original question"
+
+
+@pytest.mark.asyncio
+async def test_call_claude_no_backlog_on_normal_response(mock_process):
+    """Normal response passes through without affecting backlog."""
+    bot_data = {
+        "settings": MagicMock(backlog_enabled=True, backlog_file="/tmp/bl.json"),
+        "backlog": [],
+    }
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec",
+        return_value=mock_process,
+    ):
+        result, _ = await call_claude(
+            prompt="hello", bot_data=bot_data, user_message="hello"
+        )
+        assert result == "Hello from Claude"
+        assert bot_data["backlog"] == []
+
+
+@pytest.mark.asyncio
+async def test_call_claude_no_backlog_without_bot_data(mock_process):
+    """Without bot_data kwarg, auth error passes through unchanged."""
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.communicate.return_value = (
+        b'{"type":"error","error":{"type":"authentication_error"}}',
+        b"",
+    )
     with patch(
         "pyclaudius.claude.asyncio.create_subprocess_exec",
         return_value=proc,

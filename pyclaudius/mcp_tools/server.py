@@ -69,6 +69,39 @@ def create_mcp_server(*, bot_data: dict) -> FastMCP:
             """List all stored memory facts about the user."""
             return operations.list_memories(bot_data=bot_data)
 
+    if settings.backlog_enabled:
+
+        @mcp.tool()
+        async def list_backlog() -> str:
+            """List all pending backlog items (messages saved after auth errors)."""
+            return operations.list_backlog(bot_data=bot_data)
+
+        @mcp.tool()
+        async def clear_backlog() -> str:
+            """Clear all pending backlog items."""
+            return operations.clear_backlog(bot_data=bot_data)
+
+        @mcp.tool()
+        async def replay_one(index: int) -> str:
+            """Pop a single backlog item by 1-based index and return its prompt text."""
+            try:
+                item = operations.remove_backlog_item(index=index, bot_data=bot_data)
+                return item["prompt"]
+            except ValueError as e:
+                return str(e)
+
+        @mcp.tool()
+        async def replay_backlog() -> str:
+            """Pop all backlog items and return their prompts as text."""
+            items: list[dict] = bot_data.get("backlog", [])
+            if not items:
+                return "Backlog is empty."
+            prompts: list[str] = []
+            while bot_data.get("backlog"):
+                item = operations.remove_backlog_item(index=1, bot_data=bot_data)
+                prompts.append(item["prompt"])
+            return "\n\n---\n\n".join(prompts)
+
     return mcp
 
 

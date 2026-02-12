@@ -1,3 +1,7 @@
+# [0.8.0] - 2026-02-11
+
+* todo pile
+
 # [0.7.0] -2026-02-08
 
 * new mcp tooling setup

@@ -9,6 +9,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
+from pyclaudius.backlog import BacklogItem, format_backlog_list, save_backlog
 from pyclaudius.config import Settings
 from pyclaudius.cron.models import ScheduledJob
 from pyclaudius.cron.scheduler import (
@@ -203,3 +204,33 @@ def list_memories(*, bot_data: dict) -> str:
         return "No memories stored."
     lines = "\n".join(f"{i + 1}. {fact}" for i, fact in enumerate(memory))
     return f"Stored memories ({len(memory)}):\n\n{lines}"
+
+
+def list_backlog(*, bot_data: dict) -> str:
+    """List all pending backlog items."""
+    items: list[BacklogItem] = bot_data.get("backlog", [])
+    return format_backlog_list(items=items)
+
+
+def clear_backlog(*, bot_data: dict) -> str:
+    """Clear all backlog items."""
+    settings: Settings = bot_data["settings"]
+    bot_data["backlog"] = []
+    save_backlog(backlog_file=settings.backlog_file, items=[])
+    logger.info("Backlog cleared")
+    return "Backlog cleared."
+
+
+def remove_backlog_item(*, index: int, bot_data: dict) -> BacklogItem:
+    """Remove a backlog item by 1-based index. Raises ValueError if out of range."""
+    settings: Settings = bot_data["settings"]
+    items: list[BacklogItem] = bot_data.get("backlog", [])
+
+    if index < 1 or index > len(items):
+        raise ValueError(f"Invalid index {index}. Valid range: 1-{len(items)}.")
+
+    removed = items.pop(index - 1)
+    bot_data["backlog"] = items
+    save_backlog(backlog_file=settings.backlog_file, items=items)
+    logger.info(f"Removed backlog item {index}: {removed['prompt'][:50]}")
+    return removed

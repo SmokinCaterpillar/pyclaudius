@@ -9,7 +9,14 @@ from telegram.ext import ContextTypes
 from pyclaudius.claude import call_claude
 from pyclaudius.config import Settings
 from pyclaudius.memory import format_memory_section
-from pyclaudius.operations import forget_memory, list_memories, remember_fact
+from pyclaudius.operations import (
+    clear_backlog,
+    forget_memory,
+    list_backlog,
+    list_memories,
+    remember_fact,
+    remove_backlog_item,
+)
 from pyclaudius.prompt import build_prompt
 from pyclaudius.response import has_silent_tag, split_response
 from pyclaudius.session import save_session
@@ -79,7 +86,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 resume=True,
                 allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
                 cwd=str(settings.claude_work_dir),
-                auto_refresh_auth=settings.auto_refresh_auth,
+                bot_data=context.bot_data,
+                user_message=update.message.text,
             )
     else:
         response, new_session_id = await call_claude(
@@ -89,7 +97,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             resume=True,
             allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
             cwd=str(settings.claude_work_dir),
-            auto_refresh_auth=settings.auto_refresh_auth,
+            bot_data=context.bot_data,
+            user_message=update.message.text,
         )
 
     if new_session_id:
@@ -150,7 +159,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 add_dirs=[str(settings.uploads_dir)],
                 allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
                 cwd=str(settings.claude_work_dir),
-                auto_refresh_auth=settings.auto_refresh_auth,
+                bot_data=context.bot_data,
+                user_message=caption,
             )
     else:
         response, new_session_id = await call_claude(
@@ -161,7 +171,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             add_dirs=[str(settings.uploads_dir)],
             allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
             cwd=str(settings.claude_work_dir),
-            auto_refresh_auth=settings.auto_refresh_auth,
+            bot_data=context.bot_data,
+            user_message=caption,
         )
 
     if new_session_id:
@@ -220,7 +231,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 add_dirs=[str(settings.uploads_dir)],
                 allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
                 cwd=str(settings.claude_work_dir),
-                auto_refresh_auth=settings.auto_refresh_auth,
+                bot_data=context.bot_data,
+                user_message=caption,
             )
     else:
         response, new_session_id = await call_claude(
@@ -231,7 +243,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             add_dirs=[str(settings.uploads_dir)],
             allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
             cwd=str(settings.claude_work_dir),
-            auto_refresh_auth=settings.auto_refresh_auth,
+            bot_data=context.bot_data,
+            user_message=caption,
         )
 
     if new_session_id:
@@ -321,7 +334,7 @@ async def handle_listmemory_command(
 async def handle_timezone_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Handle /timezone <city> command \u2014 set timezone with fuzzy matching."""
+    """Handle /timezone <city> command — set timezone with fuzzy matching."""
     settings: Settings = context.bot_data["settings"]
 
     if not update.message or not update.message.text:
@@ -369,6 +382,214 @@ async def handle_timezone_command(
 
 
 @authorized
+async def handle_listbacklog_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /listbacklog command — show pending backlog items."""
+    settings: Settings = context.bot_data["settings"]
+
+    if not update.message:
+        return
+
+    if not settings.backlog_enabled:
+        await update.message.reply_text("Backlog is disabled.")
+        return
+
+    result = list_backlog(bot_data=context.bot_data)
+    await update.message.reply_text(result)
+
+
+@authorized
+async def handle_clearbacklog_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /clearbacklog command — clear all backlog items."""
+    settings: Settings = context.bot_data["settings"]
+
+    if not update.message:
+        return
+
+    if not settings.backlog_enabled:
+        await update.message.reply_text("Backlog is disabled.")
+        return
+
+    result = clear_backlog(bot_data=context.bot_data)
+    await update.message.reply_text(result)
+
+
+@authorized
+async def handle_replaybacklog_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /replaybacklog command — replay all backlog items sequentially."""
+    settings: Settings = context.bot_data["settings"]
+    session: dict = context.bot_data["session"]
+
+    if not update.message:
+        return
+
+    if not settings.backlog_enabled:
+        await update.message.reply_text("Backlog is disabled.")
+        return
+
+    backlog: list[dict] = context.bot_data.get("backlog", [])
+    if not backlog:
+        await update.message.reply_text("Backlog is empty.")
+        return
+
+    count = len(backlog)
+    await update.message.reply_text(f"Replaying {count} backlog item(s)...")
+
+    while context.bot_data.get("backlog"):
+        item = remove_backlog_item(index=1, bot_data=context.bot_data)
+        await update.message.chat.send_action(action=ChatAction.TYPING)
+
+        memory: list[str] = context.bot_data.get("memory", [])
+        cron_jobs: list[dict] = context.bot_data.get("cron_jobs", [])
+        user_tz: str | None = context.bot_data.get("user_timezone")
+        memory_section = _get_memory_section(settings=settings, memory=memory)
+        cron_count = _get_cron_count(settings=settings, cron_jobs=cron_jobs)
+        backlog_msg = (
+            f"[Backlog — originally sent at {item['created_at']}]\n"
+            f"{item['prompt']}"
+        )
+        prompt = build_prompt(
+            user_message=backlog_msg,
+            memory_section=memory_section,
+            cron_count=cron_count,
+            timezone=user_tz,
+        )
+
+        claude_lock = context.bot_data.get("claude_lock")
+        if claude_lock:
+            async with claude_lock:
+                response, new_session_id = await call_claude(
+                    prompt=prompt,
+                    claude_path=settings.claude_path,
+                    session_id=session.get("session_id"),
+                    resume=True,
+                    allowed_tools=_get_allowed_tools(
+                        settings=settings, bot_data=context.bot_data
+                    ),
+                    cwd=str(settings.claude_work_dir),
+                    bot_data=context.bot_data,
+                    user_message=item["prompt"],
+                )
+        else:
+            response, new_session_id = await call_claude(
+                prompt=prompt,
+                claude_path=settings.claude_path,
+                session_id=session.get("session_id"),
+                resume=True,
+                allowed_tools=_get_allowed_tools(
+                    settings=settings, bot_data=context.bot_data
+                ),
+                cwd=str(settings.claude_work_dir),
+                bot_data=context.bot_data,
+                user_message=item["prompt"],
+            )
+
+        if new_session_id:
+            session["session_id"] = new_session_id
+        save_session(
+            session_file=settings.session_file,
+            session_id=session.get("session_id"),
+        )
+
+        for chunk in split_response(text=response):
+            await update.message.reply_text(chunk)
+
+        # If auth error hit again, decorator already re-added to backlog — stop
+        if "Authentication error" in response and "backlog" in response:
+            break
+
+
+@authorized
+async def handle_replayone_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /replayone <number> command — replay a single backlog item."""
+    settings: Settings = context.bot_data["settings"]
+    session: dict = context.bot_data["session"]
+
+    if not update.message or not update.message.text:
+        return
+
+    if not settings.backlog_enabled:
+        await update.message.reply_text("Backlog is disabled.")
+        return
+
+    arg = update.message.text.removeprefix("/replayone").strip()
+    if not arg or not arg.isdigit():
+        await update.message.reply_text("Usage: /replayone <number>")
+        return
+
+    index = int(arg)
+    try:
+        item = remove_backlog_item(index=index, bot_data=context.bot_data)
+    except ValueError as e:
+        await update.message.reply_text(str(e))
+        return
+
+    await update.message.chat.send_action(action=ChatAction.TYPING)
+
+    memory: list[str] = context.bot_data.get("memory", [])
+    cron_jobs: list[dict] = context.bot_data.get("cron_jobs", [])
+    user_tz: str | None = context.bot_data.get("user_timezone")
+    memory_section = _get_memory_section(settings=settings, memory=memory)
+    cron_count = _get_cron_count(settings=settings, cron_jobs=cron_jobs)
+    backlog_msg = (
+        f"[Backlog — originally sent at {item['created_at']}]\n"
+        f"{item['prompt']}"
+    )
+    prompt = build_prompt(
+        user_message=backlog_msg,
+        memory_section=memory_section,
+        cron_count=cron_count,
+        timezone=user_tz,
+    )
+
+    claude_lock = context.bot_data.get("claude_lock")
+    if claude_lock:
+        async with claude_lock:
+            response, new_session_id = await call_claude(
+                prompt=prompt,
+                claude_path=settings.claude_path,
+                session_id=session.get("session_id"),
+                resume=True,
+                allowed_tools=_get_allowed_tools(
+                    settings=settings, bot_data=context.bot_data
+                ),
+                cwd=str(settings.claude_work_dir),
+                bot_data=context.bot_data,
+                user_message=item["prompt"],
+            )
+    else:
+        response, new_session_id = await call_claude(
+            prompt=prompt,
+            claude_path=settings.claude_path,
+            session_id=session.get("session_id"),
+            resume=True,
+            allowed_tools=_get_allowed_tools(
+                settings=settings, bot_data=context.bot_data
+            ),
+            cwd=str(settings.claude_work_dir),
+            bot_data=context.bot_data,
+            user_message=item["prompt"],
+        )
+
+    if new_session_id:
+        session["session_id"] = new_session_id
+    save_session(
+        session_file=settings.session_file,
+        session_id=session.get("session_id"),
+    )
+
+    for chunk in split_response(text=response):
+        await update.message.reply_text(chunk)
+
+
+@authorized
 async def handle_help_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -387,7 +608,11 @@ async def handle_help_command(
         "/schedule <datetime> | <prompt> \u2014 schedule a one-time task\n"
         "/listcron \u2014 list all scheduled jobs\n"
         "/removecron <number> \u2014 remove a scheduled job by number\n"
-        "/testcron <number> \u2014 immediately test a scheduled job\n\n"
+        "/testcron <number> \u2014 immediately test a scheduled job\n"
+        "/listbacklog \u2014 show pending backlog items\n"
+        "/clearbacklog \u2014 clear all backlog items\n"
+        "/replaybacklog \u2014 replay all backlog items\n"
+        "/replayone <number> \u2014 replay a single backlog item\n\n"
         "Text, photo, and document messages are forwarded to Claude."
     )
     await update.message.reply_text(help_text)

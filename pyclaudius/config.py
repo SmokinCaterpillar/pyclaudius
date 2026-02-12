@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     max_memories: int = 100
     cron_enabled: bool = False
     allowed_tools: list[str] = []
-    auto_refresh_auth: bool = False
+    backlog_enabled: bool = True
 
     def __str__(self) -> str:
         fields = {
@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     @property
     def timezone_file(self) -> Path:
         return self.relay_dir / "timezone.json"
+
+    @property
+    def backlog_file(self) -> Path:
+        return self.relay_dir / "backlog.json"
 
     @property
     def claude_work_dir(self) -> Path:
