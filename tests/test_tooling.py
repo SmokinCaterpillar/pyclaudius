@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -6,8 +6,6 @@ from pyclaudius.tooling import (
     authorized,
     check_authorized,
     is_auth_error,
-    refresh_auth,
-    with_auth_retry,
 )
 
 
@@ -122,83 +120,3 @@ def test_is_auth_error_matches(text: str):
 )
 def test_is_auth_error_no_match(text: str):
     assert is_auth_error(response=text) is False
-
-
-@pytest.mark.asyncio
-async def test_refresh_auth_success():
-    proc = AsyncMock()
-    proc.returncode = 0
-    proc.communicate.return_value = (b"", b"")
-    with patch(
-        "pyclaudius.tooling.asyncio.create_subprocess_exec",
-        return_value=proc,
-    ) as mock_exec:
-        result = await refresh_auth(claude_path="/usr/bin/claude")
-        assert result is True
-        mock_exec.assert_called_once()
-        assert mock_exec.call_args[0] == ("/usr/bin/claude",)
-        proc.communicate.assert_called_once_with(input=b"/exit\n")
-
-
-@pytest.mark.asyncio
-async def test_refresh_auth_failure():
-    proc = AsyncMock()
-    proc.returncode = 1
-    proc.communicate.return_value = (b"", b"error")
-    with patch(
-        "pyclaudius.tooling.asyncio.create_subprocess_exec",
-        return_value=proc,
-    ):
-        result = await refresh_auth(claude_path="claude")
-        assert result is False
-
-
-@pytest.mark.asyncio
-async def test_refresh_auth_timeout():
-    proc = AsyncMock()
-    proc.communicate.return_value = (b"", b"")
-    with (
-        patch(
-            "pyclaudius.tooling.asyncio.create_subprocess_exec",
-            return_value=proc,
-        ),
-        patch(
-            "pyclaudius.tooling.asyncio.wait_for",
-            side_effect=TimeoutError,
-        ),
-    ):
-        result = await refresh_auth(claude_path="claude")
-        assert result is False
-
-
-@pytest.mark.asyncio
-async def test_with_auth_retry_skips_when_disabled():
-    """Auth error response returned as-is when auto_refresh_auth=False."""
-
-    @with_auth_retry
-    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
-        return "authentication_error", "sess-1"
-
-    result, session_id = await fake_claude(prompt="hi", auto_refresh_auth=False)
-    assert result == "authentication_error"
-    assert session_id == "sess-1"
-
-
-@pytest.mark.asyncio
-async def test_with_auth_retry_retries_when_enabled():
-    """Retries when auto_refresh_auth=True and auth error detected."""
-    call_count = 0
-
-    @with_auth_retry
-    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            return "authentication_error", "sess-1"
-        return "Hello from Claude", "sess-1"
-
-    with patch("pyclaudius.tooling.refresh_auth", return_value=True) as mock_refresh:
-        result, _session_id = await fake_claude(prompt="hi", auto_refresh_auth=True)
-        assert result == "Hello from Claude"
-        assert call_count == 2
-        mock_refresh.assert_called_once()

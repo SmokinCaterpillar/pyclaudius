@@ -11,6 +11,7 @@ from telegram.ext import (
     filters,
 )
 
+from pyclaudius.backlog import load_backlog
 from pyclaudius.config import Settings, ensure_dirs
 from pyclaudius.cron.handlers import (
     handle_addcron_command,
@@ -27,12 +28,16 @@ from pyclaudius.cron.scheduler import (
 )
 from pyclaudius.cron.store import load_cron_jobs, save_cron_jobs
 from pyclaudius.handlers import (
+    handle_clearbacklog_command,
     handle_document,
     handle_forget_command,
     handle_help_command,
+    handle_listbacklog_command,
     handle_listmemory_command,
     handle_photo,
     handle_remember_command,
+    handle_replaybacklog_command,
+    handle_replayone_command,
     handle_text,
     handle_timezone_command,
 )
@@ -137,6 +142,13 @@ def main() -> None:
         app.bot_data["memory"] = []
         logger.info("Memory disabled")
 
+    if settings.backlog_enabled:
+        app.bot_data["backlog"] = load_backlog(backlog_file=settings.backlog_file)
+        logger.info(f"Backlog enabled with {len(app.bot_data['backlog'])} pending item(s)")
+    else:
+        app.bot_data["backlog"] = []
+        logger.info("Backlog disabled")
+
     app.bot_data["user_timezone"] = load_timezone(timezone_file=settings.timezone_file)
     logger.info(f"User timezone: {app.bot_data['user_timezone'] or 'UTC (default)'}")
 
@@ -208,6 +220,10 @@ def main() -> None:
     app.add_handler(CommandHandler("listcron", handle_listcron_command))
     app.add_handler(CommandHandler("removecron", handle_removecron_command))
     app.add_handler(CommandHandler("testcron", handle_testcron_command))
+    app.add_handler(CommandHandler("listbacklog", handle_listbacklog_command))
+    app.add_handler(CommandHandler("clearbacklog", handle_clearbacklog_command))
+    app.add_handler(CommandHandler("replaybacklog", handle_replaybacklog_command))
+    app.add_handler(CommandHandler("replayone", handle_replayone_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))

@@ -3,12 +3,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from pyclaudius.handlers import (
+    handle_clearbacklog_command,
     handle_document,
     handle_forget_command,
     handle_help_command,
+    handle_listbacklog_command,
     handle_listmemory_command,
     handle_photo,
     handle_remember_command,
+    handle_replaybacklog_command,
+    handle_replayone_command,
     handle_text,
 )
 
@@ -20,6 +24,7 @@ def _make_context(
     max_memories=100,
     allowed_tools=None,
     cron_enabled=False,
+    backlog_enabled=True,
 ):
     context = MagicMock()
     context.bot_data = {
@@ -35,11 +40,13 @@ def _make_context(
             claude_work_dir=tmp_path / "claude-work",
             cron_enabled=cron_enabled,
             cron_file=tmp_path / "cron.json",
-            auto_refresh_auth=False,
+            backlog_enabled=backlog_enabled,
+            backlog_file=tmp_path / "backlog.json",
         ),
         "session": {"session_id": None, "last_activity": ""},
         "memory": [],
         "cron_jobs": [],
+        "backlog": [],
         "scheduler": MagicMock(),
         "application": MagicMock(),
     }
@@ -76,6 +83,9 @@ async def test_handle_text_success(tmp_path):
         mock_claude.return_value = ("Hi there!", "session-abc")
         await handle_text(update, context)
         mock_claude.assert_called_once()
+        kwargs = mock_claude.call_args.kwargs
+        assert kwargs["bot_data"] is context.bot_data
+        assert kwargs["user_message"] == "hello claude"
         update.message.reply_text.assert_called_once_with("Hi there!")
         assert context.bot_data["session"]["session_id"] == "session-abc"
 
@@ -112,6 +122,9 @@ async def test_handle_photo_success(tmp_path):
         mock_claude.return_value = ("Nice photo!", None)
         await handle_photo(update, context)
         mock_claude.assert_called_once()
+        kwargs = mock_claude.call_args.kwargs
+        assert kwargs["bot_data"] is context.bot_data
+        assert kwargs["user_message"] == "Analyze this image."
         update.message.reply_text.assert_called_once_with("Nice photo!")
         context.bot.get_file.assert_called_once_with("photo123")
 
@@ -136,6 +149,9 @@ async def test_handle_document_success(tmp_path):
         mock_claude.return_value = ("Document analyzed!", None)
         await handle_document(update, context)
         mock_claude.assert_called_once()
+        kwargs = mock_claude.call_args.kwargs
+        assert kwargs["bot_data"] is context.bot_data
+        assert kwargs["user_message"] == "Analyze: test.pdf"
         update.message.reply_text.assert_called_once_with("Document analyzed!")
 
 
@@ -457,3 +473,180 @@ async def test_handle_text_includes_mcp_allowed_tools(tmp_path):
         await handle_text(update, context)
         tools_arg = mock_claude.call_args.kwargs["allowed_tools"]
         assert tools_arg == ["WebSearch", "mcp__pyclaudius__*"]
+
+
+# --- Backlog command tests ---
+
+
+@pytest.mark.asyncio
+async def test_handle_help_command_shows_backlog_commands(tmp_path):
+    update = _make_update()
+    context = _make_context(tmp_path)
+    await handle_help_command(update, context)
+    reply = update.message.reply_text.call_args[0][0]
+    assert "/listbacklog" in reply
+    assert "/clearbacklog" in reply
+    assert "/replaybacklog" in reply
+    assert "/replayone" in reply
+
+
+@pytest.mark.asyncio
+async def test_handle_listbacklog_command_empty(tmp_path):
+    update = _make_update()
+    context = _make_context(tmp_path)
+    await handle_listbacklog_command(update, context)
+    reply = update.message.reply_text.call_args[0][0]
+    assert "empty" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_handle_listbacklog_command_with_items(tmp_path):
+    update = _make_update()
+    context = _make_context(tmp_path)
+    context.bot_data["backlog"] = [
+        {"prompt": "hello world", "created_at": "2026-01-01T00:00:00"},
+    ]
+    await handle_listbacklog_command(update, context)
+    reply = update.message.reply_text.call_args[0][0]
+    assert "hello world" in reply
+    assert "1" in reply
+
+
+@pytest.mark.asyncio
+async def test_handle_listbacklog_command_disabled(tmp_path):
+    update = _make_update()
+    context = _make_context(tmp_path, backlog_enabled=False)
+    await handle_listbacklog_command(update, context)
+    update.message.reply_text.assert_called_once_with("Backlog is disabled.")
+
+
+@pytest.mark.asyncio
+async def test_handle_listbacklog_command_unauthorized(tmp_path):
+    update = _make_update(user_id=99999)
+    context = _make_context(tmp_path)
+    await handle_listbacklog_command(update, context)
+    update.message.reply_text.assert_called_once_with("This bot is private.")
+
+
+@pytest.mark.asyncio
+async def test_handle_clearbacklog_command(tmp_path):
+    update = _make_update()
+    context = _make_context(tmp_path)
+    context.bot_data["backlog"] = [
+        {"prompt": "hello", "created_at": "2026-01-01T00:00:00"},
+    ]
+    await handle_clearbacklog_command(update, context)
+    assert context.bot_data["backlog"] == []
+    reply = update.message.reply_text.call_args[0][0]
+    assert "cleared" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_handle_clearbacklog_command_disabled(tmp_path):
+    update = _make_update()
+    context = _make_context(tmp_path, backlog_enabled=False)
+    await handle_clearbacklog_command(update, context)
+    update.message.reply_text.assert_called_once_with("Backlog is disabled.")
+
+
+@pytest.mark.asyncio
+async def test_handle_clearbacklog_command_unauthorized(tmp_path):
+    update = _make_update(user_id=99999)
+    context = _make_context(tmp_path)
+    await handle_clearbacklog_command(update, context)
+    update.message.reply_text.assert_called_once_with("This bot is private.")
+
+
+@pytest.mark.asyncio
+async def test_handle_replaybacklog_command_empty(tmp_path):
+    update = _make_update()
+    context = _make_context(tmp_path)
+    await handle_replaybacklog_command(update, context)
+    update.message.reply_text.assert_called_once_with("Backlog is empty.")
+
+
+@pytest.mark.asyncio
+async def test_handle_replaybacklog_command_replays(tmp_path):
+    update = _make_update()
+    context = _make_context(tmp_path)
+    context.bot_data["backlog"] = [
+        {"prompt": "first question", "created_at": "2026-01-01T00:00:00"},
+        {"prompt": "second question", "created_at": "2026-01-02T00:00:00"},
+    ]
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
+        mock_claude.return_value = ("Answer!", "sess-1")
+        await handle_replaybacklog_command(update, context)
+        assert mock_claude.call_count == 2
+        assert context.bot_data["backlog"] == []
+
+
+@pytest.mark.asyncio
+async def test_handle_replaybacklog_command_disabled(tmp_path):
+    update = _make_update()
+    context = _make_context(tmp_path, backlog_enabled=False)
+    await handle_replaybacklog_command(update, context)
+    update.message.reply_text.assert_called_once_with("Backlog is disabled.")
+
+
+@pytest.mark.asyncio
+async def test_handle_replaybacklog_command_unauthorized(tmp_path):
+    update = _make_update(user_id=99999)
+    context = _make_context(tmp_path)
+    await handle_replaybacklog_command(update, context)
+    update.message.reply_text.assert_called_once_with("This bot is private.")
+
+
+@pytest.mark.asyncio
+async def test_handle_replayone_command_success(tmp_path):
+    update = _make_update(text="/replayone 1")
+    context = _make_context(tmp_path)
+    context.bot_data["backlog"] = [
+        {"prompt": "hello world", "created_at": "2026-01-01T00:00:00"},
+    ]
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
+        mock_claude.return_value = ("Answer!", "sess-1")
+        await handle_replayone_command(update, context)
+        mock_claude.assert_called_once()
+        kwargs = mock_claude.call_args.kwargs
+        assert kwargs["user_message"] == "hello world"
+        assert context.bot_data["backlog"] == []
+
+
+@pytest.mark.asyncio
+async def test_handle_replayone_command_no_arg(tmp_path):
+    update = _make_update(text="/replayone")
+    context = _make_context(tmp_path)
+    await handle_replayone_command(update, context)
+    update.message.reply_text.assert_called_once_with("Usage: /replayone <number>")
+
+
+@pytest.mark.asyncio
+async def test_handle_replayone_command_invalid_index(tmp_path):
+    update = _make_update(text="/replayone 5")
+    context = _make_context(tmp_path)
+    context.bot_data["backlog"] = [
+        {"prompt": "hello", "created_at": "2026-01-01T00:00:00"},
+    ]
+    await handle_replayone_command(update, context)
+    reply = update.message.reply_text.call_args[0][0]
+    assert "Invalid index 5" in reply
+
+
+@pytest.mark.asyncio
+async def test_handle_replayone_command_disabled(tmp_path):
+    update = _make_update(text="/replayone 1")
+    context = _make_context(tmp_path, backlog_enabled=False)
+    await handle_replayone_command(update, context)
+    update.message.reply_text.assert_called_once_with("Backlog is disabled.")
+
+
+@pytest.mark.asyncio
+async def test_handle_replayone_command_unauthorized(tmp_path):
+    update = _make_update(user_id=99999, text="/replayone 1")
+    context = _make_context(tmp_path)
+    await handle_replayone_command(update, context)
+    update.message.reply_text.assert_called_once_with("This bot is private.")
