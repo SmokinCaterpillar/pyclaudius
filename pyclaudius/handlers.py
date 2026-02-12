@@ -449,8 +449,12 @@ async def handle_replaybacklog_command(
         user_tz: str | None = context.bot_data.get("user_timezone")
         memory_section = _get_memory_section(settings=settings, memory=memory)
         cron_count = _get_cron_count(settings=settings, cron_jobs=cron_jobs)
+        backlog_msg = (
+            f"[Backlog — originally sent at {item['created_at']}]\n"
+            f"{item['prompt']}"
+        )
         prompt = build_prompt(
-            user_message=item["prompt"],
+            user_message=backlog_msg,
             memory_section=memory_section,
             cron_count=cron_count,
             timezone=user_tz,
@@ -534,8 +538,12 @@ async def handle_replayone_command(
     user_tz: str | None = context.bot_data.get("user_timezone")
     memory_section = _get_memory_section(settings=settings, memory=memory)
     cron_count = _get_cron_count(settings=settings, cron_jobs=cron_jobs)
+    backlog_msg = (
+        f"[Backlog — originally sent at {item['created_at']}]\n"
+        f"{item['prompt']}"
+    )
     prompt = build_prompt(
-        user_message=item["prompt"],
+        user_message=backlog_msg,
         memory_section=memory_section,
         cron_count=cron_count,
         timezone=user_tz,

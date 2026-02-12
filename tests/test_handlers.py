@@ -580,6 +580,11 @@ async def test_handle_replaybacklog_command_replays(tmp_path):
         await handle_replaybacklog_command(update, context)
         assert mock_claude.call_count == 2
         assert context.bot_data["backlog"] == []
+        # Prompts should contain backlog prefix
+        for call in mock_claude.call_args_list:
+            prompt_arg = call.kwargs["prompt"]
+            assert "Backlog" in prompt_arg
+            assert "originally sent at" in prompt_arg
 
 
 @pytest.mark.asyncio
@@ -614,6 +619,9 @@ async def test_handle_replayone_command_success(tmp_path):
         kwargs = mock_claude.call_args.kwargs
         assert kwargs["user_message"] == "hello world"
         assert context.bot_data["backlog"] == []
+        # Prompt should contain backlog prefix
+        assert "Backlog" in kwargs["prompt"]
+        assert "originally sent at" in kwargs["prompt"]
 
 
 @pytest.mark.asyncio

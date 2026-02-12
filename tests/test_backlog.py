@@ -159,6 +159,42 @@ async def test_with_backlog_preserves_function_name():
 
 
 @pytest.mark.asyncio
+async def test_with_backlog_empty_user_message_not_saved(tmp_path):
+    """Auth error with empty/blank user_message — skip saving to backlog."""
+
+    @with_backlog
+    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
+        return "authentication_error", None
+
+    backlog_file = tmp_path / "backlog.json"
+    bot_data = {
+        "settings": MagicMock(backlog_enabled=True, backlog_file=backlog_file),
+        "backlog": [],
+    }
+
+    # None user_message
+    result, _ = await fake_claude(
+        prompt="hi", bot_data=bot_data, user_message=None
+    )
+    assert result == "authentication_error"
+    assert bot_data["backlog"] == []
+
+    # Empty string
+    result, _ = await fake_claude(
+        prompt="hi", bot_data=bot_data, user_message=""
+    )
+    assert result == "authentication_error"
+    assert bot_data["backlog"] == []
+
+    # Blank string
+    result, _ = await fake_claude(
+        prompt="hi", bot_data=bot_data, user_message="   "
+    )
+    assert result == "authentication_error"
+    assert bot_data["backlog"] == []
+
+
+@pytest.mark.asyncio
 async def test_with_backlog_appends_to_existing(tmp_path):
     """Multiple auth errors accumulate in the backlog."""
 

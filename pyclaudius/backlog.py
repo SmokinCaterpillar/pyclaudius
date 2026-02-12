@@ -68,6 +68,9 @@ def with_backlog(
         if not is_auth_error(response=response):
             return response, session_id
 
+        if not user_message or not str(user_message).strip():
+            return response, session_id
+
         backlog: list[BacklogItem] = bot_data.get("backlog", [])  # type: ignore[union-attr]
         backlog.append(
             BacklogItem(
