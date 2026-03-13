@@ -42,6 +42,7 @@ def _make_context(
             cron_file=tmp_path / "cron.json",
             backlog_enabled=backlog_enabled,
             backlog_file=tmp_path / "backlog.json",
+            claude_timeout=300,
         ),
         "session": {"session_id": None, "last_activity": ""},
         "memory": [],

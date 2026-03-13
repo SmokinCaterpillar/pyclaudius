@@ -92,6 +92,21 @@ def test_settings_timezone_file(tmp_path, monkeypatch):
     assert s.timezone_file == relay / "timezone.json"
 
 
+def test_settings_claude_timeout_default(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    s = Settings()
+    assert s.claude_timeout == 300
+
+
+def test_settings_claude_timeout_from_env(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    monkeypatch.setenv("CLAUDE_TIMEOUT", "60")
+    s = Settings()
+    assert s.claude_timeout == 60
+
+
 def test_ensure_dirs_idempotent(tmp_path, monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
     monkeypatch.setenv("TELEGRAM_USER_ID", "1")

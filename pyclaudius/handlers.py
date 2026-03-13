@@ -86,6 +86,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 resume=True,
                 allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
                 cwd=str(settings.claude_work_dir),
+                timeout=settings.claude_timeout,
                 bot_data=context.bot_data,
                 user_message=update.message.text,
             )
@@ -97,6 +98,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             resume=True,
             allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
             cwd=str(settings.claude_work_dir),
+            timeout=settings.claude_timeout,
             bot_data=context.bot_data,
             user_message=update.message.text,
         )
@@ -159,6 +161,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 add_dirs=[str(settings.uploads_dir)],
                 allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
                 cwd=str(settings.claude_work_dir),
+                timeout=settings.claude_timeout,
                 bot_data=context.bot_data,
                 user_message=caption,
             )
@@ -171,6 +174,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             add_dirs=[str(settings.uploads_dir)],
             allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
             cwd=str(settings.claude_work_dir),
+            timeout=settings.claude_timeout,
             bot_data=context.bot_data,
             user_message=caption,
         )
@@ -231,6 +235,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 add_dirs=[str(settings.uploads_dir)],
                 allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
                 cwd=str(settings.claude_work_dir),
+                timeout=settings.claude_timeout,
                 bot_data=context.bot_data,
                 user_message=caption,
             )
@@ -243,6 +248,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             add_dirs=[str(settings.uploads_dir)],
             allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
             cwd=str(settings.claude_work_dir),
+            timeout=settings.claude_timeout,
             bot_data=context.bot_data,
             user_message=caption,
         )
@@ -472,6 +478,7 @@ async def handle_replaybacklog_command(
                         settings=settings, bot_data=context.bot_data
                     ),
                     cwd=str(settings.claude_work_dir),
+                    timeout=settings.claude_timeout,
                     bot_data=context.bot_data,
                     user_message=item["prompt"],
                 )
@@ -485,6 +492,7 @@ async def handle_replaybacklog_command(
                     settings=settings, bot_data=context.bot_data
                 ),
                 cwd=str(settings.claude_work_dir),
+                timeout=settings.claude_timeout,
                 bot_data=context.bot_data,
                 user_message=item["prompt"],
             )
@@ -561,6 +569,7 @@ async def handle_replayone_command(
                     settings=settings, bot_data=context.bot_data
                 ),
                 cwd=str(settings.claude_work_dir),
+                timeout=settings.claude_timeout,
                 bot_data=context.bot_data,
                 user_message=item["prompt"],
             )
@@ -574,6 +583,7 @@ async def handle_replayone_command(
                 settings=settings, bot_data=context.bot_data
             ),
             cwd=str(settings.claude_work_dir),
+            timeout=settings.claude_timeout,
             bot_data=context.bot_data,
             user_message=item["prompt"],
         )

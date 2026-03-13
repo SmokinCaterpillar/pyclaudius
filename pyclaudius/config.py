@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     cron_enabled: bool = False
     allowed_tools: list[str] = []
     backlog_enabled: bool = True
+    claude_timeout: int = 300
 
     def __str__(self) -> str:
         fields = {
