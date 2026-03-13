@@ -1,6 +1,7 @@
 # [0.8.1] - 2026-03-13
 
 * timeout on subprocess call
+* New error handling
 
 # [0.8.0] - 2026-02-11
 

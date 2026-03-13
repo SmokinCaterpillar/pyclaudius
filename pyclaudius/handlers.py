@@ -33,6 +33,16 @@ def _get_memory_section(*, settings: Settings, memory: list[str]) -> str | None:
     return None
 
 
+async def _send_response(*, message: object, response: str) -> None:
+    """Send response chunks to the user, with fallback for empty responses."""
+    chunks = split_response(text=response)
+    if not chunks:
+        await message.reply_text("(empty response from Claude)")
+        return
+    for chunk in chunks:
+        await message.reply_text(chunk)
+
+
 def _get_cron_count(*, settings: Settings, cron_jobs: list[dict]) -> int | None:
     """Return cron job count if cron is enabled, else None."""
     if settings.cron_enabled:
@@ -116,8 +126,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    for chunk in split_response(text=response):
-        await update.message.reply_text(chunk)
+    await _send_response(message=update.message, response=response)
 
 
 @authorized
@@ -186,8 +195,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         session_id=session.get("session_id"),
     )
 
-    for chunk in split_response(text=response):
-        await update.message.reply_text(chunk)
+    await _send_response(message=update.message, response=response)
 
     with contextlib.suppress(OSError):
         os.unlink(file_path)
@@ -260,8 +268,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         session_id=session.get("session_id"),
     )
 
-    for chunk in split_response(text=response):
-        await update.message.reply_text(chunk)
+    await _send_response(message=update.message, response=response)
 
     with contextlib.suppress(OSError):
         os.unlink(file_path)
@@ -595,8 +602,7 @@ async def handle_replayone_command(
         session_id=session.get("session_id"),
     )
 
-    for chunk in split_response(text=response):
-        await update.message.reply_text(chunk)
+    await _send_response(message=update.message, response=response)
 
 
 @authorized

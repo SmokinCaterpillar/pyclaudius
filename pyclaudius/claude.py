@@ -74,8 +74,8 @@ async def call_claude(
         proc.kill()
         await proc.wait()
         return f"Error: Claude CLI timed out after {timeout}s", None
-    except FileNotFoundError:
-        return "Error: Could not run Claude CLI", None
+    except OSError as e:
+        return f"Error: Could not run Claude CLI: {e}", None
 
     stdout_text = stdout.decode()
     stderr_text = stderr.decode()
@@ -88,5 +88,11 @@ async def call_claude(
             return stdout_text.strip(), session_id
         error_msg = stderr_text.strip() or f"Claude exited with code {proc.returncode}"
         return f"Error: {error_msg}", None
+
+    if not stdout_text.strip():
+        if stderr_text.strip():
+            logger.warning(f"Claude returned empty stdout, stderr: {stderr_text.strip()[:200]}")
+            return f"Error: {stderr_text.strip()}", None
+        logger.warning("Claude returned empty response (no stdout, no stderr)")
 
     return stdout_text.strip(), session_id
