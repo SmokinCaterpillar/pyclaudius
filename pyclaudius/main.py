@@ -3,10 +3,12 @@ import logging
 import sys
 from datetime import UTC, datetime
 
+from telegram import Update
 from telegram.ext import (
     Application,
     ApplicationBuilder,
     CommandHandler,
+    ContextTypes,
     MessageHandler,
     filters,
 )
@@ -111,6 +113,13 @@ async def _post_shutdown(application: Application) -> None:
         claude_path=settings.claude_path, cwd=str(settings.claude_work_dir)
     )
     logger.info("Unregistered MCP server from Claude CLI")
+
+
+async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log exceptions and notify the user."""
+    logger.error(f"Exception while handling update: {context.error}", exc_info=context.error)
+    if isinstance(update, Update) and update.message:
+        await update.message.reply_text(f"Error: {context.error}")
 
 
 def main() -> None:
@@ -227,6 +236,8 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+
+    app.add_error_handler(_error_handler)
 
     logger.info(f"Bot starting with relay dir: {settings.relay_dir}")
 

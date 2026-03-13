@@ -74,8 +74,8 @@ async def call_claude(
         proc.kill()
         await proc.wait()
         return f"Error: Claude CLI timed out after {timeout}s", None
-    except FileNotFoundError:
-        return "Error: Could not run Claude CLI", None
+    except OSError as e:
+        return f"Error: Could not run Claude CLI: {e}", None
 
     stdout_text = stdout.decode()
     stderr_text = stderr.decode()

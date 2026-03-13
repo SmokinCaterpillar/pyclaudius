@@ -289,6 +289,18 @@ async def test_call_claude_timeout():
 
 
 @pytest.mark.asyncio
+async def test_call_claude_permission_error():
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec",
+        side_effect=PermissionError("Permission denied"),
+    ):
+        result, session_id = await call_claude(prompt="test")
+        assert "Error" in result
+        assert "Permission denied" in result
+        assert session_id is None
+
+
+@pytest.mark.asyncio
 async def test_call_claude_no_backlog_without_bot_data(mock_process):
     """Without bot_data kwarg, auth error passes through unchanged."""
     proc = AsyncMock()

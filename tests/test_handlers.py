@@ -659,3 +659,18 @@ async def test_handle_replayone_command_unauthorized(tmp_path):
     context = _make_context(tmp_path)
     await handle_replayone_command(update, context)
     update.message.reply_text.assert_called_once_with("This bot is private.")
+
+
+@pytest.mark.asyncio
+async def test_handle_text_empty_response(tmp_path):
+    """Empty response from Claude triggers fallback message."""
+    update = _make_update(text="hello")
+    context = _make_context(tmp_path)
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
+        mock_claude.return_value = ("", "session-abc")
+        await handle_text(update, context)
+        update.message.reply_text.assert_called_once_with(
+            "(empty response from Claude)"
+        )
