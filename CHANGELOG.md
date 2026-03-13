@@ -1,3 +1,7 @@
+# [0.8.1] - 2026-03-13
+
+* timeout on subprocess call
+
 # [0.8.0] - 2026-02-11
 
 * todo pile

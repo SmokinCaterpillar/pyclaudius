@@ -274,6 +274,21 @@ async def test_call_claude_no_backlog_on_normal_response(mock_process):
 
 
 @pytest.mark.asyncio
+async def test_call_claude_timeout():
+    proc = AsyncMock()
+    proc.communicate.side_effect = TimeoutError
+    proc.kill = MagicMock()
+    proc.wait = AsyncMock()
+
+    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=proc):
+        result, session_id = await call_claude(prompt="slow query", timeout=10)
+        assert "timed out after 10s" in result
+        assert session_id is None
+        proc.kill.assert_called_once()
+        proc.wait.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_call_claude_no_backlog_without_bot_data(mock_process):
     """Without bot_data kwarg, auth error passes through unchanged."""
     proc = AsyncMock()

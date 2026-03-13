@@ -34,6 +34,7 @@ async def call_claude(
     add_dirs: list[str] | None = None,
     allowed_tools: list[str] | None = None,
     cwd: str | None = None,
+    timeout: int = 300,
 ) -> tuple[str, str | None]:
     """Spawn the Claude CLI and return (response_text, session_id).
 
@@ -66,7 +67,13 @@ async def call_claude(
             cwd=cwd,
             env=_build_subprocess_env(),
         )
-        stdout, stderr = await proc.communicate()
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(), timeout=timeout
+        )
+    except TimeoutError:
+        proc.kill()
+        await proc.wait()
+        return f"Error: Claude CLI timed out after {timeout}s", None
     except FileNotFoundError:
         return "Error: Could not run Claude CLI", None
 
