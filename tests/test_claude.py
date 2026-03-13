@@ -301,6 +301,28 @@ async def test_call_claude_permission_error():
 
 
 @pytest.mark.asyncio
+async def test_call_claude_empty_stdout_with_stderr():
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.communicate.return_value = (b"", b"rate limit exceeded")
+    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=proc):
+        result, session_id = await call_claude(prompt="hello")
+        assert result == "Error: rate limit exceeded"
+        assert session_id is None
+
+
+@pytest.mark.asyncio
+async def test_call_claude_empty_stdout_empty_stderr():
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.communicate.return_value = (b"", b"")
+    with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=proc):
+        result, session_id = await call_claude(prompt="hello")
+        assert result == ""
+        assert session_id is not None
+
+
+@pytest.mark.asyncio
 async def test_call_claude_no_backlog_without_bot_data(mock_process):
     """Without bot_data kwarg, auth error passes through unchanged."""
     proc = AsyncMock()

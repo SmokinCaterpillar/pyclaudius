@@ -89,4 +89,10 @@ async def call_claude(
         error_msg = stderr_text.strip() or f"Claude exited with code {proc.returncode}"
         return f"Error: {error_msg}", None
 
+    if not stdout_text.strip():
+        if stderr_text.strip():
+            logger.warning(f"Claude returned empty stdout, stderr: {stderr_text.strip()[:200]}")
+            return f"Error: {stderr_text.strip()}", None
+        logger.warning("Claude returned empty response (no stdout, no stderr)")
+
     return stdout_text.strip(), session_id
