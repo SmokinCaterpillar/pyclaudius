@@ -206,6 +206,8 @@ TMUX_SESSION=claude
 
 When configured, an APScheduler job runs every 10 hours and executes `tmux send-keys -t <session> "hello" Enter`. This requires `tmux` to be installed and the named session to exist.
 
+**systemd note:** The service unit uses `PrivateTmp=true`, which isolates `/tmp`. To let the keepalive reach your tmux socket, the unit includes a `BindPaths=` directive that bind-mounts `/tmp/tmux-<UID>`. The default UID is `1000`; if yours differs, update the value in `daemon/pyclaudius.service` (check with `id -u`).
+
 ## Deploying on a server (Hetzner, etc.)
 
 ### 1. Provision the server
