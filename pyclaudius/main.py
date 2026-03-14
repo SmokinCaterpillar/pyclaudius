@@ -1,8 +1,9 @@
 import asyncio
 import logging
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
+from apscheduler.triggers.interval import IntervalTrigger
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -43,6 +44,7 @@ from pyclaudius.handlers import (
     handle_text,
     handle_timezone_command,
 )
+from pyclaudius.keepalive import send_tmux_keepalive
 from pyclaudius.lockfile import acquire_lock, release_lock, setup_signal_handlers
 from pyclaudius.mcp_tools.config import (
     find_free_port,
@@ -117,7 +119,9 @@ async def _post_shutdown(application: Application) -> None:
 
 async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log exceptions and notify the user."""
-    logger.error(f"Exception while handling update: {context.error}", exc_info=context.error)
+    logger.error(
+        f"Exception while handling update: {context.error}", exc_info=context.error
+    )
     if isinstance(update, Update) and update.message:
         await update.message.reply_text(f"Error: {context.error}")
 
@@ -153,7 +157,9 @@ def main() -> None:
 
     if settings.backlog_enabled:
         app.bot_data["backlog"] = load_backlog(backlog_file=settings.backlog_file)
-        logger.info(f"Backlog enabled with {len(app.bot_data['backlog'])} pending item(s)")
+        logger.info(
+            f"Backlog enabled with {len(app.bot_data['backlog'])} pending item(s)"
+        )
     else:
         app.bot_data["backlog"] = []
         logger.info("Backlog disabled")
@@ -165,10 +171,13 @@ def main() -> None:
     app.bot_data["claude_lock"] = asyncio.Lock()
 
     # Cron / scheduling setup
-    if settings.cron_enabled:
+    needs_scheduler = settings.cron_enabled or settings.tmux_session is not None
+
+    if needs_scheduler:
         scheduler = create_scheduler()
         app.bot_data["scheduler"] = scheduler
 
+    if settings.cron_enabled:
         cron_jobs = load_cron_jobs(cron_file=settings.cron_file)
 
         # Filter out past one-time jobs
@@ -210,6 +219,18 @@ def main() -> None:
     else:
         app.bot_data["cron_jobs"] = []
         logger.info("Cron disabled")
+
+    if settings.tmux_session:
+        scheduler.add_job(
+            send_tmux_keepalive,
+            trigger=IntervalTrigger(hours=10),
+            id="tmux-keepalive",
+            kwargs={"session_name": settings.tmux_session},
+            next_run_time=datetime.now(tz=UTC) + timedelta(seconds=10),
+        )
+        logger.info(
+            f"Tmux keepalive enabled for session {settings.tmux_session!r} (every 10h)"
+        )
 
     # MCP server setup (always on — registered with Claude CLI in _post_init)
     mcp_port = find_free_port()

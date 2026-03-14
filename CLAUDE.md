@@ -11,3 +11,4 @@ Please inspect the parent folder and everything underneath to see what we want t
 * Pass arguments always as keyword arguments if possible
 * And use f-strings for logging
 * Use typing everywhere
+* Run uv run ruff format .; uv run ruff check --fix .

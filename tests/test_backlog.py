@@ -173,23 +173,17 @@ async def test_with_backlog_empty_user_message_not_saved(tmp_path):
     }
 
     # None user_message
-    result, _ = await fake_claude(
-        prompt="hi", bot_data=bot_data, user_message=None
-    )
+    result, _ = await fake_claude(prompt="hi", bot_data=bot_data, user_message=None)
     assert result == "authentication_error"
     assert bot_data["backlog"] == []
 
     # Empty string
-    result, _ = await fake_claude(
-        prompt="hi", bot_data=bot_data, user_message=""
-    )
+    result, _ = await fake_claude(prompt="hi", bot_data=bot_data, user_message="")
     assert result == "authentication_error"
     assert bot_data["backlog"] == []
 
     # Blank string
-    result, _ = await fake_claude(
-        prompt="hi", bot_data=bot_data, user_message="   "
-    )
+    result, _ = await fake_claude(prompt="hi", bot_data=bot_data, user_message="   ")
     assert result == "authentication_error"
     assert bot_data["backlog"] == []
 
@@ -210,9 +204,7 @@ async def test_with_backlog_appends_to_existing(tmp_path):
         "settings": MagicMock(backlog_enabled=True, backlog_file=backlog_file),
         "backlog": list(existing),
     }
-    result, _ = await fake_claude(
-        prompt="hi", bot_data=bot_data, user_message="second"
-    )
+    result, _ = await fake_claude(prompt="hi", bot_data=bot_data, user_message="second")
     assert "2 pending" in result
     assert len(bot_data["backlog"]) == 2
     assert bot_data["backlog"][1]["prompt"] == "second"
