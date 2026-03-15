@@ -1,5 +1,6 @@
 """Backlog storage and decorator for saving failed prompts on auth errors."""
 
+import asyncio
 import json
 import logging
 from collections.abc import Awaitable, Callable
@@ -8,6 +9,7 @@ from functools import wraps
 from pathlib import Path
 from typing import TypedDict
 
+from pyclaudius.keepalive import send_tmux_keepalive
 from pyclaudius.tooling import is_auth_error
 
 logger = logging.getLogger(__name__)
@@ -67,6 +69,19 @@ def with_backlog(
 
         if not is_auth_error(response=response):
             return response, session_id
+
+        # Retry once via tmux keepalive before saving to backlog
+        if settings.tmux_session:
+            logger.info(
+                f"Auth error — sending tmux keepalive to {settings.tmux_session!r} and retrying"
+            )
+            await send_tmux_keepalive(session_name=settings.tmux_session)
+            await asyncio.sleep(5)
+            response, session_id = await func(**kwargs)
+            if not is_auth_error(response=response):
+                logger.info("Retry after keepalive succeeded")
+                return response, session_id
+            logger.warning("Retry after keepalive still failed — saving to backlog")
 
         if not user_message or not str(user_message).strip():
             return response, session_id

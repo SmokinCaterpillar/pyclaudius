@@ -223,13 +223,13 @@ def main() -> None:
     if settings.tmux_session:
         scheduler.add_job(
             send_tmux_keepalive,
-            trigger=IntervalTrigger(hours=10),
+            trigger=IntervalTrigger(hours=5, minutes=10),
             id="tmux-keepalive",
             kwargs={"session_name": settings.tmux_session},
             next_run_time=datetime.now(tz=UTC) + timedelta(seconds=10),
         )
         logger.info(
-            f"Tmux keepalive enabled for session {settings.tmux_session!r} (every 10h)"
+            f"Tmux keepalive enabled for session {settings.tmux_session!r} (every 5h)"
         )
 
     # MCP server setup (always on — registered with Claude CLI in _post_init)
