@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     allowed_tools: list[str] = []
     backlog_enabled: bool = True
     claude_timeout: int = 300
+    tmux_session: str | None = None
 
     def __str__(self) -> str:
         fields = {

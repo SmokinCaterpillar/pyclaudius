@@ -56,7 +56,6 @@ def _get_allowed_tools(*, settings: Settings, bot_data: dict) -> list[str]:
     return list(settings.allowed_tools) + mcp_tools
 
 
-
 @authorized
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming text messages."""
@@ -94,7 +93,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 claude_path=settings.claude_path,
                 session_id=session.get("session_id"),
                 resume=True,
-                allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
+                allowed_tools=_get_allowed_tools(
+                    settings=settings, bot_data=context.bot_data
+                ),
                 cwd=str(settings.claude_work_dir),
                 timeout=settings.claude_timeout,
                 bot_data=context.bot_data,
@@ -106,7 +107,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             claude_path=settings.claude_path,
             session_id=session.get("session_id"),
             resume=True,
-            allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
+            allowed_tools=_get_allowed_tools(
+                settings=settings, bot_data=context.bot_data
+            ),
             cwd=str(settings.claude_work_dir),
             timeout=settings.claude_timeout,
             bot_data=context.bot_data,
@@ -168,7 +171,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 session_id=session.get("session_id"),
                 resume=True,
                 add_dirs=[str(settings.uploads_dir)],
-                allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
+                allowed_tools=_get_allowed_tools(
+                    settings=settings, bot_data=context.bot_data
+                ),
                 cwd=str(settings.claude_work_dir),
                 timeout=settings.claude_timeout,
                 bot_data=context.bot_data,
@@ -181,7 +186,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             session_id=session.get("session_id"),
             resume=True,
             add_dirs=[str(settings.uploads_dir)],
-            allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
+            allowed_tools=_get_allowed_tools(
+                settings=settings, bot_data=context.bot_data
+            ),
             cwd=str(settings.claude_work_dir),
             timeout=settings.claude_timeout,
             bot_data=context.bot_data,
@@ -241,7 +248,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 session_id=session.get("session_id"),
                 resume=True,
                 add_dirs=[str(settings.uploads_dir)],
-                allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
+                allowed_tools=_get_allowed_tools(
+                    settings=settings, bot_data=context.bot_data
+                ),
                 cwd=str(settings.claude_work_dir),
                 timeout=settings.claude_timeout,
                 bot_data=context.bot_data,
@@ -254,7 +263,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             session_id=session.get("session_id"),
             resume=True,
             add_dirs=[str(settings.uploads_dir)],
-            allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
+            allowed_tools=_get_allowed_tools(
+                settings=settings, bot_data=context.bot_data
+            ),
             cwd=str(settings.claude_work_dir),
             timeout=settings.claude_timeout,
             bot_data=context.bot_data,
@@ -463,8 +474,7 @@ async def handle_replaybacklog_command(
         memory_section = _get_memory_section(settings=settings, memory=memory)
         cron_count = _get_cron_count(settings=settings, cron_jobs=cron_jobs)
         backlog_msg = (
-            f"[Backlog — originally sent at {item['created_at']}]\n"
-            f"{item['prompt']}"
+            f"[Backlog — originally sent at {item['created_at']}]\n{item['prompt']}"
         )
         prompt = build_prompt(
             user_message=backlog_msg,
@@ -554,8 +564,7 @@ async def handle_replayone_command(
     memory_section = _get_memory_section(settings=settings, memory=memory)
     cron_count = _get_cron_count(settings=settings, cron_jobs=cron_jobs)
     backlog_msg = (
-        f"[Backlog — originally sent at {item['created_at']}]\n"
-        f"{item['prompt']}"
+        f"[Backlog — originally sent at {item['created_at']}]\n{item['prompt']}"
     )
     prompt = build_prompt(
         user_message=backlog_msg,

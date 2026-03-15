@@ -1,5 +1,5 @@
 import json
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -98,7 +98,9 @@ async def test_with_backlog_auth_error_saves_prompt(tmp_path):
 
     backlog_file = tmp_path / "backlog.json"
     bot_data = {
-        "settings": MagicMock(backlog_enabled=True, backlog_file=backlog_file),
+        "settings": MagicMock(
+            backlog_enabled=True, backlog_file=backlog_file, tmux_session=None
+        ),
         "backlog": [],
     }
     result, session_id = await fake_claude(
@@ -168,28 +170,24 @@ async def test_with_backlog_empty_user_message_not_saved(tmp_path):
 
     backlog_file = tmp_path / "backlog.json"
     bot_data = {
-        "settings": MagicMock(backlog_enabled=True, backlog_file=backlog_file),
+        "settings": MagicMock(
+            backlog_enabled=True, backlog_file=backlog_file, tmux_session=None
+        ),
         "backlog": [],
     }
 
     # None user_message
-    result, _ = await fake_claude(
-        prompt="hi", bot_data=bot_data, user_message=None
-    )
+    result, _ = await fake_claude(prompt="hi", bot_data=bot_data, user_message=None)
     assert result == "authentication_error"
     assert bot_data["backlog"] == []
 
     # Empty string
-    result, _ = await fake_claude(
-        prompt="hi", bot_data=bot_data, user_message=""
-    )
+    result, _ = await fake_claude(prompt="hi", bot_data=bot_data, user_message="")
     assert result == "authentication_error"
     assert bot_data["backlog"] == []
 
     # Blank string
-    result, _ = await fake_claude(
-        prompt="hi", bot_data=bot_data, user_message="   "
-    )
+    result, _ = await fake_claude(prompt="hi", bot_data=bot_data, user_message="   ")
     assert result == "authentication_error"
     assert bot_data["backlog"] == []
 
@@ -207,12 +205,105 @@ async def test_with_backlog_appends_to_existing(tmp_path):
         {"prompt": "first", "created_at": "2026-01-01T00:00:00"}
     ]
     bot_data = {
-        "settings": MagicMock(backlog_enabled=True, backlog_file=backlog_file),
+        "settings": MagicMock(
+            backlog_enabled=True, backlog_file=backlog_file, tmux_session=None
+        ),
         "backlog": list(existing),
     }
-    result, _ = await fake_claude(
-        prompt="hi", bot_data=bot_data, user_message="second"
-    )
+    result, _ = await fake_claude(prompt="hi", bot_data=bot_data, user_message="second")
     assert "2 pending" in result
     assert len(bot_data["backlog"]) == 2
     assert bot_data["backlog"][1]["prompt"] == "second"
+
+
+@pytest.mark.asyncio
+@patch("pyclaudius.backlog.asyncio.sleep", new_callable=AsyncMock)
+@patch("pyclaudius.backlog.send_tmux_keepalive", new_callable=AsyncMock)
+async def test_with_backlog_auth_error_retries_after_keepalive(
+    mock_keepalive: AsyncMock,
+    mock_sleep: AsyncMock,
+) -> None:
+    """Auth error + tmux session → keepalive + retry succeeds → no backlog save."""
+    call_count = 0
+
+    @with_backlog
+    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return "authentication_error", None
+        return "Hello from Claude", "sess-2"
+
+    bot_data = {
+        "settings": MagicMock(
+            backlog_enabled=True, backlog_file="/tmp/bl.json", tmux_session="claude0"
+        ),
+        "backlog": [],
+    }
+    result, session_id = await fake_claude(
+        prompt="hi", bot_data=bot_data, user_message="my question"
+    )
+    assert result == "Hello from Claude"
+    assert session_id == "sess-2"
+    assert bot_data["backlog"] == []
+    mock_keepalive.assert_awaited_once_with(session_name="claude0")
+    mock_sleep.assert_awaited_once_with(5)
+
+
+@pytest.mark.asyncio
+@patch("pyclaudius.backlog.asyncio.sleep", new_callable=AsyncMock)
+@patch("pyclaudius.backlog.send_tmux_keepalive", new_callable=AsyncMock)
+async def test_with_backlog_auth_error_retry_also_fails(
+    mock_keepalive: AsyncMock,
+    mock_sleep: AsyncMock,
+    tmp_path,
+) -> None:
+    """Auth error + tmux session → keepalive + retry also fails → saves to backlog."""
+
+    @with_backlog
+    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
+        return "authentication_error", None
+
+    backlog_file = tmp_path / "backlog.json"
+    bot_data = {
+        "settings": MagicMock(
+            backlog_enabled=True, backlog_file=backlog_file, tmux_session="claude0"
+        ),
+        "backlog": [],
+    }
+    result, session_id = await fake_claude(
+        prompt="hi", bot_data=bot_data, user_message="my question"
+    )
+    assert "Authentication error" in result
+    assert "1 pending" in result
+    assert session_id is None
+    assert len(bot_data["backlog"]) == 1
+    assert bot_data["backlog"][0]["prompt"] == "my question"
+    mock_keepalive.assert_awaited_once_with(session_name="claude0")
+    mock_sleep.assert_awaited_once_with(5)
+
+
+@pytest.mark.asyncio
+async def test_with_backlog_auth_error_no_tmux_session_no_retry(tmp_path) -> None:
+    """Auth error + no tmux session → no keepalive, goes straight to backlog."""
+    call_count = 0
+
+    @with_backlog
+    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
+        nonlocal call_count
+        call_count += 1
+        return "authentication_error", None
+
+    backlog_file = tmp_path / "backlog.json"
+    bot_data = {
+        "settings": MagicMock(
+            backlog_enabled=True, backlog_file=backlog_file, tmux_session=None
+        ),
+        "backlog": [],
+    }
+    result, session_id = await fake_claude(
+        prompt="hi", bot_data=bot_data, user_message="my question"
+    )
+    assert "Authentication error" in result
+    assert session_id is None
+    assert call_count == 1  # No retry attempt
