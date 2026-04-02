@@ -1,3 +1,4 @@
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -312,14 +313,19 @@ async def test_call_claude_empty_stdout_with_stderr():
 
 
 @pytest.mark.asyncio
-async def test_call_claude_empty_stdout_empty_stderr():
+async def test_call_claude_empty_stdout_empty_stderr(caplog):
     proc = AsyncMock()
     proc.returncode = 0
     proc.communicate.return_value = (b"", b"")
     with patch("pyclaudius.claude.asyncio.create_subprocess_exec", return_value=proc):
-        result, session_id = await call_claude(prompt="hello")
+        with caplog.at_level(logging.WARNING, logger="pyclaudius.claude"):
+            result, session_id = await call_claude(prompt="hello")
         assert result == ""
         assert session_id is not None
+        assert "rc=0" in caplog.text
+        assert "stdout_bytes=0" in caplog.text
+        assert "stderr_bytes=0" in caplog.text
+        assert "session=" in caplog.text
 
 
 @pytest.mark.asyncio
