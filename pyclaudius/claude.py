@@ -57,6 +57,7 @@ async def call_claude(
         args.extend(["--allowedTools", ",".join(allowed_tools)])
 
     logger.info(f"Calling Claude (session={session_id}): {prompt[:50]}...")
+    logger.info(f"Full command: {' '.join([*args[:2], '<prompt>', *args[3:]])}")
 
     try:
         proc = await asyncio.create_subprocess_exec(
