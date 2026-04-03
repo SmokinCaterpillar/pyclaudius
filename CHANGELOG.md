@@ -1,6 +1,7 @@
 # [0.9.0] - 2026-03-14
 
 * using tmux session to keep claude alive
+* allow for /clear and /compact
 
 # [0.8.1] - 2026-03-13
 

@@ -31,7 +31,9 @@ from pyclaudius.cron.scheduler import (
 )
 from pyclaudius.cron.store import load_cron_jobs, save_cron_jobs
 from pyclaudius.handlers import (
+    handle_clear_command,
     handle_clearbacklog_command,
+    handle_compact_command,
     handle_document,
     handle_forget_command,
     handle_help_command,
@@ -241,6 +243,8 @@ def main() -> None:
     logger.info(f"MCP enabled on port {mcp_port}")
 
     app.add_handler(CommandHandler("help", handle_help_command))
+    app.add_handler(CommandHandler("clear", handle_clear_command))
+    app.add_handler(CommandHandler("compact", handle_compact_command))
     app.add_handler(CommandHandler("timezone", handle_timezone_command))
     app.add_handler(CommandHandler("remember", handle_remember_command))
     app.add_handler(CommandHandler("listmemory", handle_listmemory_command))
