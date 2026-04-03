@@ -34,9 +34,13 @@ async def test_tmux_send_failure(caplog):
     mock_proc = AsyncMock()
     mock_proc.returncode = 1
     mock_proc.communicate = AsyncMock(return_value=(b"", b"session not found"))
-    with patch(
-        "pyclaudius.keepalive.asyncio.create_subprocess_exec", return_value=mock_proc
-    ), caplog.at_level(logging.WARNING, logger="pyclaudius.keepalive"):
+    with (
+        patch(
+            "pyclaudius.keepalive.asyncio.create_subprocess_exec",
+            return_value=mock_proc,
+        ),
+        caplog.at_level(logging.WARNING, logger="pyclaudius.keepalive"),
+    ):
         result = await _tmux_send(session_name="nosession", text="hello")
     assert result is False
     assert "session not found" in caplog.text

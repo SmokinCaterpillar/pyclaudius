@@ -16,7 +16,9 @@ def _build_subprocess_env() -> dict[str, str]:
     like TELEGRAM_BOT_TOKEN — is stripped so the subprocess cannot
     leak them.
     """
-    env: dict[str, str] = {}
+    # Auto-compact the Claude CLI context at 90% capacity (default is 95%).
+    # See: https://docs.anthropic.com/en/docs/claude-code
+    env: dict[str, str] = {"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "90"}
     for key in ("HOME", "PATH"):
         value = os.environ.get(key)
         if value is not None:

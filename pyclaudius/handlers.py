@@ -690,6 +690,48 @@ async def handle_compact_command(
 
 
 @authorized
+async def handle_context_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /context command — show context window usage."""
+    settings: Settings = context.bot_data["settings"]
+    session: dict = context.bot_data["session"]
+
+    if not update.message:
+        return
+
+    if not session.get("session_id"):
+        await update.message.reply_text("No active session.")
+        return
+
+    await update.message.chat.send_action(action=ChatAction.TYPING)
+
+    claude_lock = context.bot_data.get("claude_lock")
+    call_kwargs: dict = dict(
+        prompt="/context",
+        claude_path=settings.claude_path,
+        session_id=session["session_id"],
+        resume=True,
+        cwd=str(settings.claude_work_dir),
+        timeout=settings.claude_timeout,
+    )
+    if claude_lock:
+        async with claude_lock:
+            response, new_session_id = await call_claude(**call_kwargs)
+    else:
+        response, new_session_id = await call_claude(**call_kwargs)
+
+    if new_session_id:
+        session["session_id"] = new_session_id
+    save_session(
+        session_file=settings.session_file,
+        session_id=session.get("session_id"),
+    )
+
+    await _send_response(message=update.message, response=response)
+
+
+@authorized
 async def handle_help_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -702,6 +744,7 @@ async def handle_help_command(
         "/help \u2014 show available commands\n"
         "/clear \u2014 clear session and start fresh\n"
         "/compact \u2014 compact conversation context\n"
+        "/context \u2014 show context window usage\n"
         "/timezone <city> \u2014 set timezone (fuzzy match)\n"
         "/remember <fact> \u2014 store a memory fact\n"
         "/listmemory \u2014 list all stored memories\n"

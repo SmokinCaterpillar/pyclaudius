@@ -189,7 +189,11 @@ def test_build_subprocess_env_contains_only_home_and_path():
         clear=True,
     ):
         env = _build_subprocess_env()
-        assert env == {"HOME": "/home/test", "PATH": "/usr/bin"}
+        assert env == {
+            "HOME": "/home/test",
+            "PATH": "/usr/bin",
+            "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "90",
+        }
 
 
 def test_build_subprocess_env_excludes_secrets():
@@ -205,8 +209,16 @@ def test_build_subprocess_env_excludes_secrets():
 def test_build_subprocess_env_handles_missing_keys():
     with patch.dict("os.environ", {"HOME": "/home/test"}, clear=True):
         env = _build_subprocess_env()
-        assert env == {"HOME": "/home/test"}
+        assert env == {"HOME": "/home/test", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "90"}
         assert "PATH" not in env
+
+
+def test_build_subprocess_env_sets_autocompact():
+    with patch.dict(
+        "os.environ", {"HOME": "/home/test", "PATH": "/usr/bin"}, clear=True
+    ):
+        env = _build_subprocess_env()
+        assert env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] == "90"
 
 
 @pytest.mark.asyncio
@@ -224,7 +236,11 @@ async def test_call_claude_passes_sanitized_env(mock_process):
     ):
         await call_claude(prompt="hi")
         env_kwarg = mock_exec.call_args.kwargs["env"]
-        assert env_kwarg == {"HOME": "/home/test", "PATH": "/usr/bin"}
+        assert env_kwarg == {
+            "HOME": "/home/test",
+            "PATH": "/usr/bin",
+            "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "90",
+        }
         assert "TELEGRAM_BOT_TOKEN" not in env_kwarg
 
 
