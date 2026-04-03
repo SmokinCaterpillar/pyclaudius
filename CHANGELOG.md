@@ -1,3 +1,7 @@
+# [0.9.1] - 2026-04-03
+
+* /context supported
+
 # [0.9.0] - 2026-03-14
 
 * using tmux session to keep claude alive

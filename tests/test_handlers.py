@@ -6,6 +6,7 @@ from pyclaudius.handlers import (
     handle_clear_command,
     handle_clearbacklog_command,
     handle_compact_command,
+    handle_context_command,
     handle_document,
     handle_forget_command,
     handle_help_command,
@@ -752,4 +753,43 @@ async def test_handle_compact_command_unauthorized(tmp_path):
     update = _make_update(user_id=99999, text="/compact")
     context = _make_context(tmp_path)
     await handle_compact_command(update, context)
+    update.message.reply_text.assert_called_once_with("This bot is private.")
+
+
+# --- /context ---
+
+
+@pytest.mark.asyncio
+async def test_handle_context_command_success(tmp_path):
+    """Context command sends /context to CLI and relays response."""
+    update = _make_update(text="/context")
+    context = _make_context(tmp_path)
+    context.bot_data["session"]["session_id"] = "my-session"
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
+        mock_claude.return_value = ("Context: 50% used", "my-session")
+        await handle_context_command(update, context)
+        mock_claude.assert_called_once()
+        assert mock_claude.call_args.kwargs["prompt"] == "/context"
+        assert mock_claude.call_args.kwargs["session_id"] == "my-session"
+        assert mock_claude.call_args.kwargs["resume"] is True
+    assert context.bot_data["session"]["session_id"] == "my-session"
+    update.message.reply_text.assert_called_once_with("Context: 50% used")
+
+
+@pytest.mark.asyncio
+async def test_handle_context_command_no_session(tmp_path):
+    """Context command without active session replies with error."""
+    update = _make_update(text="/context")
+    context = _make_context(tmp_path)
+    await handle_context_command(update, context)
+    update.message.reply_text.assert_called_once_with("No active session.")
+
+
+@pytest.mark.asyncio
+async def test_handle_context_command_unauthorized(tmp_path):
+    update = _make_update(user_id=99999, text="/context")
+    context = _make_context(tmp_path)
+    await handle_context_command(update, context)
     update.message.reply_text.assert_called_once_with("This bot is private.")
