@@ -56,7 +56,6 @@ def _get_allowed_tools(*, settings: Settings, bot_data: dict) -> list[str]:
     return list(settings.allowed_tools) + mcp_tools
 
 
-
 @authorized
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming text messages."""
@@ -94,7 +93,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 claude_path=settings.claude_path,
                 session_id=session.get("session_id"),
                 resume=True,
-                allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
+                allowed_tools=_get_allowed_tools(
+                    settings=settings, bot_data=context.bot_data
+                ),
                 cwd=str(settings.claude_work_dir),
                 timeout=settings.claude_timeout,
                 bot_data=context.bot_data,
@@ -106,7 +107,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             claude_path=settings.claude_path,
             session_id=session.get("session_id"),
             resume=True,
-            allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
+            allowed_tools=_get_allowed_tools(
+                settings=settings, bot_data=context.bot_data
+            ),
             cwd=str(settings.claude_work_dir),
             timeout=settings.claude_timeout,
             bot_data=context.bot_data,
@@ -168,7 +171,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 session_id=session.get("session_id"),
                 resume=True,
                 add_dirs=[str(settings.uploads_dir)],
-                allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
+                allowed_tools=_get_allowed_tools(
+                    settings=settings, bot_data=context.bot_data
+                ),
                 cwd=str(settings.claude_work_dir),
                 timeout=settings.claude_timeout,
                 bot_data=context.bot_data,
@@ -181,7 +186,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             session_id=session.get("session_id"),
             resume=True,
             add_dirs=[str(settings.uploads_dir)],
-            allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
+            allowed_tools=_get_allowed_tools(
+                settings=settings, bot_data=context.bot_data
+            ),
             cwd=str(settings.claude_work_dir),
             timeout=settings.claude_timeout,
             bot_data=context.bot_data,
@@ -241,7 +248,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 session_id=session.get("session_id"),
                 resume=True,
                 add_dirs=[str(settings.uploads_dir)],
-                allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
+                allowed_tools=_get_allowed_tools(
+                    settings=settings, bot_data=context.bot_data
+                ),
                 cwd=str(settings.claude_work_dir),
                 timeout=settings.claude_timeout,
                 bot_data=context.bot_data,
@@ -254,7 +263,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             session_id=session.get("session_id"),
             resume=True,
             add_dirs=[str(settings.uploads_dir)],
-            allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
+            allowed_tools=_get_allowed_tools(
+                settings=settings, bot_data=context.bot_data
+            ),
             cwd=str(settings.claude_work_dir),
             timeout=settings.claude_timeout,
             bot_data=context.bot_data,
@@ -463,8 +474,7 @@ async def handle_replaybacklog_command(
         memory_section = _get_memory_section(settings=settings, memory=memory)
         cron_count = _get_cron_count(settings=settings, cron_jobs=cron_jobs)
         backlog_msg = (
-            f"[Backlog — originally sent at {item['created_at']}]\n"
-            f"{item['prompt']}"
+            f"[Backlog — originally sent at {item['created_at']}]\n{item['prompt']}"
         )
         prompt = build_prompt(
             user_message=backlog_msg,
@@ -554,8 +564,7 @@ async def handle_replayone_command(
     memory_section = _get_memory_section(settings=settings, memory=memory)
     cron_count = _get_cron_count(settings=settings, cron_jobs=cron_jobs)
     backlog_msg = (
-        f"[Backlog — originally sent at {item['created_at']}]\n"
-        f"{item['prompt']}"
+        f"[Backlog — originally sent at {item['created_at']}]\n{item['prompt']}"
     )
     prompt = build_prompt(
         user_message=backlog_msg,
@@ -606,6 +615,81 @@ async def handle_replayone_command(
 
 
 @authorized
+async def handle_clear_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /clear command — clear session and start fresh."""
+    settings: Settings = context.bot_data["settings"]
+    session: dict = context.bot_data["session"]
+
+    if not update.message:
+        return
+
+    if session.get("session_id"):
+        await update.message.chat.send_action(action=ChatAction.TYPING)
+        claude_lock = context.bot_data.get("claude_lock")
+        call_kwargs: dict = dict(
+            prompt="/clear",
+            claude_path=settings.claude_path,
+            session_id=session["session_id"],
+            resume=True,
+            cwd=str(settings.claude_work_dir),
+            timeout=settings.claude_timeout,
+        )
+        if claude_lock:
+            async with claude_lock:
+                await call_claude(**call_kwargs)
+        else:
+            await call_claude(**call_kwargs)
+
+    session["session_id"] = None
+    save_session(session_file=settings.session_file, session_id=None)
+    await update.message.reply_text("Session cleared.")
+
+
+@authorized
+async def handle_compact_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /compact command — compact conversation context."""
+    settings: Settings = context.bot_data["settings"]
+    session: dict = context.bot_data["session"]
+
+    if not update.message:
+        return
+
+    if not session.get("session_id"):
+        await update.message.reply_text("No active session to compact.")
+        return
+
+    await update.message.chat.send_action(action=ChatAction.TYPING)
+
+    claude_lock = context.bot_data.get("claude_lock")
+    call_kwargs: dict = dict(
+        prompt="/compact",
+        claude_path=settings.claude_path,
+        session_id=session["session_id"],
+        resume=True,
+        cwd=str(settings.claude_work_dir),
+        timeout=settings.claude_timeout,
+    )
+    if claude_lock:
+        async with claude_lock:
+            response, new_session_id = await call_claude(**call_kwargs)
+    else:
+        response, new_session_id = await call_claude(**call_kwargs)
+
+    if new_session_id:
+        session["session_id"] = new_session_id
+    save_session(
+        session_file=settings.session_file,
+        session_id=session.get("session_id"),
+    )
+
+    await _send_response(message=update.message, response=response)
+
+
+@authorized
 async def handle_help_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -616,6 +700,8 @@ async def handle_help_command(
     help_text = (
         "Available commands:\n\n"
         "/help \u2014 show available commands\n"
+        "/clear \u2014 clear session and start fresh\n"
+        "/compact \u2014 compact conversation context\n"
         "/timezone <city> \u2014 set timezone (fuzzy match)\n"
         "/remember <fact> \u2014 store a memory fact\n"
         "/listmemory \u2014 list all stored memories\n"

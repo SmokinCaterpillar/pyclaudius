@@ -107,6 +107,21 @@ def test_settings_claude_timeout_from_env(monkeypatch):
     assert s.claude_timeout == 60
 
 
+def test_settings_tmux_session_default_none(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    s = Settings()
+    assert s.tmux_session is None
+
+
+def test_settings_tmux_session_from_env(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    monkeypatch.setenv("TMUX_SESSION", "claude")
+    s = Settings()
+    assert s.tmux_session == "claude"
+
+
 def test_ensure_dirs_idempotent(tmp_path, monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
     monkeypatch.setenv("TELEGRAM_USER_ID", "1")

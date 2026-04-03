@@ -56,7 +56,8 @@ async def call_claude(
     if allowed_tools:
         args.extend(["--allowedTools", ",".join(allowed_tools)])
 
-    logger.info(f"Calling Claude: {prompt[:50]}...")
+    logger.info(f"Calling Claude (session={session_id}): {prompt[:50]}...")
+    logger.info(f"Full command: {' '.join([*args[:2], '<prompt>', *args[3:]])}")
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -67,9 +68,7 @@ async def call_claude(
             cwd=cwd,
             env=_build_subprocess_env(),
         )
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=timeout
-        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except TimeoutError:
         proc.kill()
         await proc.wait()
@@ -91,8 +90,14 @@ async def call_claude(
 
     if not stdout_text.strip():
         if stderr_text.strip():
-            logger.warning(f"Claude returned empty stdout, stderr: {stderr_text.strip()[:200]}")
+            logger.warning(
+                f"Claude returned empty stdout, stderr: {stderr_text.strip()[:200]}"
+            )
             return f"Error: {stderr_text.strip()}", None
-        logger.warning("Claude returned empty response (no stdout, no stderr)")
+        logger.warning(
+            f"Claude returned empty response"
+            f" (rc={proc.returncode}, session={session_id},"
+            f" stdout_bytes={len(stdout)}, stderr_bytes={len(stderr)})"
+        )
 
     return stdout_text.strip(), session_id
