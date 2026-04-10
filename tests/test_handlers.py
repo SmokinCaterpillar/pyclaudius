@@ -30,17 +30,18 @@ def _make_context(
     backlog_enabled=True,
 ):
     context = MagicMock()
+    claude_work_dir = tmp_path / "claude-work"
     context.bot_data = {
         "settings": MagicMock(
             telegram_user_id="12345",
             claude_path="claude",
             session_file=tmp_path / "session.json",
-            uploads_dir=tmp_path / "uploads",
+            uploads_dir=claude_work_dir / "uploads",
             memory_enabled=memory_enabled,
             max_memories=max_memories,
             memory_file=tmp_path / "memory.json",
             allowed_tools=allowed_tools or [],
-            claude_work_dir=tmp_path / "claude-work",
+            claude_work_dir=claude_work_dir,
             cron_enabled=cron_enabled,
             cron_file=tmp_path / "cron.json",
             backlog_enabled=backlog_enabled,
@@ -49,6 +50,7 @@ def _make_context(
         ),
         "session": {"session_id": None, "last_activity": ""},
         "memory": [],
+        "mcp_allowed_tools": [],
         "cron_jobs": [],
         "backlog": [],
         "scheduler": MagicMock(),
@@ -129,6 +131,8 @@ async def test_handle_photo_success(tmp_path):
         kwargs = mock_claude.call_args.kwargs
         assert kwargs["bot_data"] is context.bot_data
         assert kwargs["user_message"] == "Analyze this image."
+        assert kwargs["add_dirs"] == [str(uploads)]
+        assert "[Image: uploads/image_1.jpg]" in kwargs["prompt"]
         update.message.reply_text.assert_called_once_with("Nice photo!")
         context.bot.get_file.assert_called_once_with("photo123")
 
@@ -156,6 +160,8 @@ async def test_handle_document_success(tmp_path):
         kwargs = mock_claude.call_args.kwargs
         assert kwargs["bot_data"] is context.bot_data
         assert kwargs["user_message"] == "Analyze: test.pdf"
+        assert kwargs["add_dirs"] == [str(uploads)]
+        assert "[File: uploads/1_test.pdf]" in kwargs["prompt"]
         update.message.reply_text.assert_called_once_with("Document analyzed!")
 
 
