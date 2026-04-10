@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     @property
     def uploads_dir(self) -> Path:
-        return self.relay_dir / "uploads"
+        return self.claude_work_dir / "uploads"
 
     @property
     def session_file(self) -> Path:

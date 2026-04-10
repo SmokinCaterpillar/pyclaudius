@@ -146,17 +146,19 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     photo = update.message.photo[-1]
     file = await context.bot.get_file(photo.file_id)
-    file_path = settings.uploads_dir / f"image_{update.message.message_id}.jpg"
+    file_name = f"image_{update.message.message_id}.jpg"
+    file_path = settings.uploads_dir / file_name
     await file.download_to_drive(custom_path=str(file_path))
 
     caption = update.message.caption or "Analyze this image."
+    relative_path = f"uploads/{file_name}"
     memory: list[str] = context.bot_data.get("memory", [])
     cron_jobs: list[dict] = context.bot_data.get("cron_jobs", [])
     user_tz: str | None = context.bot_data.get("user_timezone")
     memory_section = _get_memory_section(settings=settings, memory=memory)
     cron_count = _get_cron_count(settings=settings, cron_jobs=cron_jobs)
     prompt = build_prompt(
-        user_message=f"[Image: {file_path}]\n\n{caption}",
+        user_message=f"[Image: {relative_path}]\n\n{caption}",
         memory_section=memory_section,
         cron_count=cron_count,
         timezone=user_tz,
@@ -170,7 +172,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 claude_path=settings.claude_path,
                 session_id=session.get("session_id"),
                 resume=True,
-                add_dirs=[str(settings.uploads_dir)],
                 allowed_tools=_get_allowed_tools(
                     settings=settings, bot_data=context.bot_data
                 ),
@@ -185,7 +186,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             claude_path=settings.claude_path,
             session_id=session.get("session_id"),
             resume=True,
-            add_dirs=[str(settings.uploads_dir)],
             allowed_tools=_get_allowed_tools(
                 settings=settings, bot_data=context.bot_data
             ),
@@ -223,17 +223,19 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     file = await context.bot.get_file(doc.file_id)
     file_name = doc.file_name or "document"
-    file_path = settings.uploads_dir / f"{update.message.message_id}_{file_name}"
+    stored_name = f"{update.message.message_id}_{file_name}"
+    file_path = settings.uploads_dir / stored_name
     await file.download_to_drive(custom_path=str(file_path))
 
     caption = update.message.caption or f"Analyze: {file_name}"
+    relative_path = f"uploads/{stored_name}"
     memory: list[str] = context.bot_data.get("memory", [])
     cron_jobs: list[dict] = context.bot_data.get("cron_jobs", [])
     user_tz: str | None = context.bot_data.get("user_timezone")
     memory_section = _get_memory_section(settings=settings, memory=memory)
     cron_count = _get_cron_count(settings=settings, cron_jobs=cron_jobs)
     prompt = build_prompt(
-        user_message=f"[File: {file_path}]\n\n{caption}",
+        user_message=f"[File: {relative_path}]\n\n{caption}",
         memory_section=memory_section,
         cron_count=cron_count,
         timezone=user_tz,
@@ -247,7 +249,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 claude_path=settings.claude_path,
                 session_id=session.get("session_id"),
                 resume=True,
-                add_dirs=[str(settings.uploads_dir)],
                 allowed_tools=_get_allowed_tools(
                     settings=settings, bot_data=context.bot_data
                 ),
@@ -262,7 +263,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             claude_path=settings.claude_path,
             session_id=session.get("session_id"),
             resume=True,
-            add_dirs=[str(settings.uploads_dir)],
             allowed_tools=_get_allowed_tools(
                 settings=settings, bot_data=context.bot_data
             ),

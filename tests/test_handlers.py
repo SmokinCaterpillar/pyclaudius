@@ -108,8 +108,8 @@ async def test_handle_text_no_session_update(tmp_path):
 
 @pytest.mark.asyncio
 async def test_handle_photo_success(tmp_path):
-    uploads = tmp_path / "uploads"
-    uploads.mkdir()
+    uploads = tmp_path / "claude-work" / "uploads"
+    uploads.mkdir(parents=True)
 
     update = _make_update()
     photo_mock = MagicMock()
@@ -135,8 +135,8 @@ async def test_handle_photo_success(tmp_path):
 
 @pytest.mark.asyncio
 async def test_handle_document_success(tmp_path):
-    uploads = tmp_path / "uploads"
-    uploads.mkdir()
+    uploads = tmp_path / "claude-work" / "uploads"
+    uploads.mkdir(parents=True)
 
     update = _make_update()
     update.message.document = MagicMock()

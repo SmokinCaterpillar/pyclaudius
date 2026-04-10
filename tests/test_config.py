@@ -24,7 +24,7 @@ def test_settings_derived_paths(tmp_path, monkeypatch):
     monkeypatch.setenv("RELAY_DIR", str(relay))
     s = Settings()
     assert s.temp_dir == relay / "temp"
-    assert s.uploads_dir == relay / "uploads"
+    assert s.uploads_dir == relay / "claude-work" / "uploads"
     assert s.session_file == relay / "session.json"
     assert s.lock_file == relay / "bot.lock"
     assert s.backlog_file == relay / "backlog.json"

@@ -35,7 +35,7 @@ def build_prompt(
             )
 
     return (
-        "You are responding via Telegram. Keep responses concise.\n\n"
+        "You are responding via Telegram. Keep responses concise. Base your answers only on the provided context and available sources. If you make assumptions, clearly state them. If the answer is not explicitly contained within the sources, or if you are uncertain, state 'I do not know' or 'Information not found.' Do not attempt to make up an answer.\n\n"
         f"Current time of your user: {time_str} ({tz_label})\n\n"
         f"{memory_hint}"
         f"{cron_hint}"
