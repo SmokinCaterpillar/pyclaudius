@@ -33,6 +33,7 @@ async def call_claude(
     claude_path: str = "claude",
     session_id: str | None = None,
     resume: bool = False,
+    add_dirs: list[str] | None = None,
     allowed_tools: list[str] | None = None,
     cwd: str | None = None,
     timeout: int = 300,
@@ -50,6 +51,9 @@ async def call_claude(
     elif not session_id:
         session_id = str(uuid.uuid4())
         args.extend(["--session-id", session_id])
+
+    for directory in add_dirs or []:
+        args.extend(["--add-dir", directory])
 
     if allowed_tools:
         args.extend(["--allowedTools", ",".join(allowed_tools)])

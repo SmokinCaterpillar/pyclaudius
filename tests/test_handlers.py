@@ -461,7 +461,7 @@ async def test_handle_text_passes_allowed_tools(tmp_path):
         mock_claude.return_value = ("Hi!", None)
         await handle_text(update, context)
         tools_arg = mock_claude.call_args.kwargs["allowed_tools"]
-        assert tools_arg == ["WebSearch", "WebFetch"]
+        assert tools_arg == ["Read", "Bash", "Edit", "Write", "WebSearch", "WebFetch"]
 
 
 @pytest.mark.asyncio
@@ -476,7 +476,14 @@ async def test_handle_text_includes_mcp_allowed_tools(tmp_path):
         mock_claude.return_value = ("Hi!", None)
         await handle_text(update, context)
         tools_arg = mock_claude.call_args.kwargs["allowed_tools"]
-        assert tools_arg == ["WebSearch", "mcp__pyclaudius__*"]
+        assert tools_arg == [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "WebSearch",
+            "mcp__pyclaudius__*",
+        ]
 
 
 # --- Backlog command tests ---

@@ -50,10 +50,21 @@ def _get_cron_count(*, settings: Settings, cron_jobs: list[dict]) -> int | None:
     return None
 
 
+_BUILTIN_TOOLS = ["Read", "Bash", "Edit", "Write"]
+
+
 def _get_allowed_tools(*, settings: Settings, bot_data: dict) -> list[str]:
-    """Combine user-configured allowed tools with MCP tool names."""
+    """Combine user-configured allowed tools with MCP tool names.
+
+    When extra tools (settings or MCP) are specified, built-in tools are
+    prepended so that ``--allowedTools`` does not accidentally restrict
+    Claude from basic file operations.
+    """
     mcp_tools: list[str] = bot_data.get("mcp_allowed_tools", [])
-    return list(settings.allowed_tools) + mcp_tools
+    extra = list(settings.allowed_tools) + mcp_tools
+    if extra:
+        return _BUILTIN_TOOLS + extra
+    return extra
 
 
 @authorized
@@ -172,6 +183,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 claude_path=settings.claude_path,
                 session_id=session.get("session_id"),
                 resume=True,
+                add_dirs=[str(settings.uploads_dir)],
                 allowed_tools=_get_allowed_tools(
                     settings=settings, bot_data=context.bot_data
                 ),
@@ -186,6 +198,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             claude_path=settings.claude_path,
             session_id=session.get("session_id"),
             resume=True,
+            add_dirs=[str(settings.uploads_dir)],
             allowed_tools=_get_allowed_tools(
                 settings=settings, bot_data=context.bot_data
             ),
@@ -249,6 +262,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 claude_path=settings.claude_path,
                 session_id=session.get("session_id"),
                 resume=True,
+                add_dirs=[str(settings.uploads_dir)],
                 allowed_tools=_get_allowed_tools(
                     settings=settings, bot_data=context.bot_data
                 ),
@@ -263,6 +277,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             claude_path=settings.claude_path,
             session_id=session.get("session_id"),
             resume=True,
+            add_dirs=[str(settings.uploads_dir)],
             allowed_tools=_get_allowed_tools(
                 settings=settings, bot_data=context.bot_data
             ),
