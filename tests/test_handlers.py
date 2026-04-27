@@ -30,17 +30,18 @@ def _make_context(
     backlog_enabled=True,
 ):
     context = MagicMock()
+    claude_work_dir = tmp_path / "claude-work"
     context.bot_data = {
         "settings": MagicMock(
             telegram_user_id="12345",
             claude_path="claude",
             session_file=tmp_path / "session.json",
-            uploads_dir=tmp_path / "uploads",
+            uploads_dir=claude_work_dir / "uploads",
             memory_enabled=memory_enabled,
             max_memories=max_memories,
             memory_file=tmp_path / "memory.json",
             allowed_tools=allowed_tools or [],
-            claude_work_dir=tmp_path / "claude-work",
+            claude_work_dir=claude_work_dir,
             cron_enabled=cron_enabled,
             cron_file=tmp_path / "cron.json",
             backlog_enabled=backlog_enabled,
@@ -49,6 +50,7 @@ def _make_context(
         ),
         "session": {"session_id": None, "last_activity": ""},
         "memory": [],
+        "mcp_allowed_tools": [],
         "cron_jobs": [],
         "backlog": [],
         "scheduler": MagicMock(),
@@ -108,8 +110,8 @@ async def test_handle_text_no_session_update(tmp_path):
 
 @pytest.mark.asyncio
 async def test_handle_photo_success(tmp_path):
-    uploads = tmp_path / "uploads"
-    uploads.mkdir()
+    uploads = tmp_path / "claude-work" / "uploads"
+    uploads.mkdir(parents=True)
 
     update = _make_update()
     photo_mock = MagicMock()
@@ -129,14 +131,16 @@ async def test_handle_photo_success(tmp_path):
         kwargs = mock_claude.call_args.kwargs
         assert kwargs["bot_data"] is context.bot_data
         assert kwargs["user_message"] == "Analyze this image."
+        assert kwargs["add_dirs"] == [str(uploads)]
+        assert "[Image: uploads/image_1.jpg]" in kwargs["prompt"]
         update.message.reply_text.assert_called_once_with("Nice photo!")
         context.bot.get_file.assert_called_once_with("photo123")
 
 
 @pytest.mark.asyncio
 async def test_handle_document_success(tmp_path):
-    uploads = tmp_path / "uploads"
-    uploads.mkdir()
+    uploads = tmp_path / "claude-work" / "uploads"
+    uploads.mkdir(parents=True)
 
     update = _make_update()
     update.message.document = MagicMock()
@@ -156,6 +160,8 @@ async def test_handle_document_success(tmp_path):
         kwargs = mock_claude.call_args.kwargs
         assert kwargs["bot_data"] is context.bot_data
         assert kwargs["user_message"] == "Analyze: test.pdf"
+        assert kwargs["add_dirs"] == [str(uploads)]
+        assert "[File: uploads/1_test.pdf]" in kwargs["prompt"]
         update.message.reply_text.assert_called_once_with("Document analyzed!")
 
 
@@ -438,6 +444,31 @@ async def test_handle_text_scheduled_without_silent_sends_reply(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_handle_text_suppresses_silent_response(tmp_path):
+    update = _make_update(text="hello")
+    context = _make_context(tmp_path)
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
+        mock_claude.return_value = ("[SILENT]", "session-id")
+        await handle_text(update, context)
+        update.message.reply_text.assert_not_called()
+        assert context.bot_data["session"]["session_id"] == "session-id"
+
+
+@pytest.mark.asyncio
+async def test_handle_text_suppresses_silent_case_insensitive(tmp_path):
+    update = _make_update(text="hello")
+    context = _make_context(tmp_path)
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
+        mock_claude.return_value = ("  [silent]\n", "session-id")
+        await handle_text(update, context)
+        update.message.reply_text.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_handle_help_command_shows_cron_commands(tmp_path):
     update = _make_update()
     context = _make_context(tmp_path)
@@ -461,7 +492,7 @@ async def test_handle_text_passes_allowed_tools(tmp_path):
         mock_claude.return_value = ("Hi!", None)
         await handle_text(update, context)
         tools_arg = mock_claude.call_args.kwargs["allowed_tools"]
-        assert tools_arg == ["WebSearch", "WebFetch"]
+        assert tools_arg == ["Read", "Bash", "Edit", "Write", "WebSearch", "WebFetch"]
 
 
 @pytest.mark.asyncio
@@ -476,7 +507,14 @@ async def test_handle_text_includes_mcp_allowed_tools(tmp_path):
         mock_claude.return_value = ("Hi!", None)
         await handle_text(update, context)
         tools_arg = mock_claude.call_args.kwargs["allowed_tools"]
-        assert tools_arg == ["WebSearch", "mcp__pyclaudius__*"]
+        assert tools_arg == [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "WebSearch",
+            "mcp__pyclaudius__*",
+        ]
 
 
 # --- Backlog command tests ---

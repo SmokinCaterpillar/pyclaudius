@@ -34,7 +34,15 @@ def _get_memory_section(*, settings: Settings, memory: list[str]) -> str | None:
 
 
 async def _send_response(*, message: object, response: str) -> None:
-    """Send response chunks to the user, with fallback for empty responses."""
+    """Send response chunks to the user, with fallback for empty responses.
+
+    A response containing ``[SILENT]`` is suppressed entirely — no reply
+    is sent. Empty responses (the system-level "session broken" signal)
+    still surface to the user as ``(empty response from Claude)``.
+    """
+    if has_silent_tag(text=response):
+        logger.info("Response was [SILENT], suppressing reply")
+        return
     chunks = split_response(text=response)
     if not chunks:
         await message.reply_text("(empty response from Claude)")
@@ -50,10 +58,21 @@ def _get_cron_count(*, settings: Settings, cron_jobs: list[dict]) -> int | None:
     return None
 
 
+_BUILTIN_TOOLS = ["Read", "Bash", "Edit", "Write"]
+
+
 def _get_allowed_tools(*, settings: Settings, bot_data: dict) -> list[str]:
-    """Combine user-configured allowed tools with MCP tool names."""
+    """Combine user-configured allowed tools with MCP tool names.
+
+    When extra tools (settings or MCP) are specified, built-in tools are
+    prepended so that ``--allowedTools`` does not accidentally restrict
+    Claude from basic file operations.
+    """
     mcp_tools: list[str] = bot_data.get("mcp_allowed_tools", [])
-    return list(settings.allowed_tools) + mcp_tools
+    extra = list(settings.allowed_tools) + mcp_tools
+    if extra:
+        return _BUILTIN_TOOLS + extra
+    return extra
 
 
 @authorized
@@ -146,17 +165,19 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     photo = update.message.photo[-1]
     file = await context.bot.get_file(photo.file_id)
-    file_path = settings.uploads_dir / f"image_{update.message.message_id}.jpg"
+    file_name = f"image_{update.message.message_id}.jpg"
+    file_path = settings.uploads_dir / file_name
     await file.download_to_drive(custom_path=str(file_path))
 
     caption = update.message.caption or "Analyze this image."
+    relative_path = f"uploads/{file_name}"
     memory: list[str] = context.bot_data.get("memory", [])
     cron_jobs: list[dict] = context.bot_data.get("cron_jobs", [])
     user_tz: str | None = context.bot_data.get("user_timezone")
     memory_section = _get_memory_section(settings=settings, memory=memory)
     cron_count = _get_cron_count(settings=settings, cron_jobs=cron_jobs)
     prompt = build_prompt(
-        user_message=f"[Image: {file_path}]\n\n{caption}",
+        user_message=f"[Image: {relative_path}]\n\n{caption}",
         memory_section=memory_section,
         cron_count=cron_count,
         timezone=user_tz,
@@ -223,17 +244,19 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     file = await context.bot.get_file(doc.file_id)
     file_name = doc.file_name or "document"
-    file_path = settings.uploads_dir / f"{update.message.message_id}_{file_name}"
+    stored_name = f"{update.message.message_id}_{file_name}"
+    file_path = settings.uploads_dir / stored_name
     await file.download_to_drive(custom_path=str(file_path))
 
     caption = update.message.caption or f"Analyze: {file_name}"
+    relative_path = f"uploads/{stored_name}"
     memory: list[str] = context.bot_data.get("memory", [])
     cron_jobs: list[dict] = context.bot_data.get("cron_jobs", [])
     user_tz: str | None = context.bot_data.get("user_timezone")
     memory_section = _get_memory_section(settings=settings, memory=memory)
     cron_count = _get_cron_count(settings=settings, cron_jobs=cron_jobs)
     prompt = build_prompt(
-        user_message=f"[File: {file_path}]\n\n{caption}",
+        user_message=f"[File: {relative_path}]\n\n{caption}",
         memory_section=memory_section,
         cron_count=cron_count,
         timezone=user_tz,
@@ -521,8 +544,7 @@ async def handle_replaybacklog_command(
             session_id=session.get("session_id"),
         )
 
-        for chunk in split_response(text=response):
-            await update.message.reply_text(chunk)
+        await _send_response(message=update.message, response=response)
 
         # If auth error hit again, decorator already re-added to backlog — stop
         if "Authentication error" in response and "backlog" in response:

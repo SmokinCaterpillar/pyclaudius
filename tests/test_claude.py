@@ -345,6 +345,80 @@ async def test_call_claude_empty_stdout_empty_stderr(caplog):
 
 
 @pytest.mark.asyncio
+async def test_call_claude_retries_on_no_conversation_found():
+    """Stale --resume returning 'No conversation found' triggers a retry."""
+    proc1 = AsyncMock()
+    proc1.returncode = 0
+    proc1.communicate.return_value = (
+        b"Error: No conversation found with session ID: abc-123",
+        b"",
+    )
+    proc2 = AsyncMock()
+    proc2.returncode = 0
+    proc2.communicate.return_value = (b"Recovered", b"")
+
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec",
+        side_effect=[proc1, proc2],
+    ) as mock_exec:
+        result, session_id = await call_claude(
+            prompt="hi", resume=True, session_id="abc-123"
+        )
+        assert result == "Recovered"
+        assert mock_exec.call_count == 2
+        first_args = mock_exec.call_args_list[0][0]
+        assert "--resume" in first_args
+        assert "abc-123" in first_args
+        second_args = mock_exec.call_args_list[1][0]
+        assert "--resume" not in second_args
+        assert "--session-id" in second_args
+        assert session_id is not None
+        assert session_id != "abc-123"
+
+
+@pytest.mark.asyncio
+async def test_call_claude_retries_on_silent_resume_failure():
+    """--resume with rc=0 and empty stdout/stderr triggers a retry."""
+    proc1 = AsyncMock()
+    proc1.returncode = 0
+    proc1.communicate.return_value = (b"", b"")
+    proc2 = AsyncMock()
+    proc2.returncode = 0
+    proc2.communicate.return_value = (b"Recovered", b"")
+
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec",
+        side_effect=[proc1, proc2],
+    ) as mock_exec:
+        result, session_id = await call_claude(
+            prompt="hi", resume=True, session_id="stale-id"
+        )
+        assert result == "Recovered"
+        assert mock_exec.call_count == 2
+        second_args = mock_exec.call_args_list[1][0]
+        assert "--resume" not in second_args
+        assert "--session-id" in second_args
+        assert session_id != "stale-id"
+
+
+@pytest.mark.asyncio
+async def test_call_claude_no_retry_when_not_resuming():
+    """A fresh session with empty output must not loop into a retry."""
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.communicate.return_value = (b"", b"")
+
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec",
+        return_value=proc,
+    ) as mock_exec:
+        result, session_id = await call_claude(prompt="hi")
+        assert result == ""
+        assert session_id is not None
+        assert mock_exec.call_count == 1
+
+
+@pytest.mark.asyncio
 async def test_call_claude_no_backlog_without_bot_data(mock_process):
     """Without bot_data kwarg, auth error passes through unchanged."""
     proc = AsyncMock()

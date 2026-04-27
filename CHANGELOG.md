@@ -1,3 +1,12 @@
+# [0.10.1]
+
+* BUG-FIX: restart session if it is stale
+
+# [0.10.0] - 2026-04-10
+
+* Image reading fix
+* System prompt fix
+
 # [0.9.1] - 2026-04-03
 
 * /context supported
