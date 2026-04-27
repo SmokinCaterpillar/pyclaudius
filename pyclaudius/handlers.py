@@ -34,7 +34,15 @@ def _get_memory_section(*, settings: Settings, memory: list[str]) -> str | None:
 
 
 async def _send_response(*, message: object, response: str) -> None:
-    """Send response chunks to the user, with fallback for empty responses."""
+    """Send response chunks to the user, with fallback for empty responses.
+
+    A response containing ``[SILENT]`` is suppressed entirely — no reply
+    is sent. Empty responses (the system-level "session broken" signal)
+    still surface to the user as ``(empty response from Claude)``.
+    """
+    if has_silent_tag(text=response):
+        logger.info("Response was [SILENT], suppressing reply")
+        return
     chunks = split_response(text=response)
     if not chunks:
         await message.reply_text("(empty response from Claude)")
@@ -536,8 +544,7 @@ async def handle_replaybacklog_command(
             session_id=session.get("session_id"),
         )
 
-        for chunk in split_response(text=response):
-            await update.message.reply_text(chunk)
+        await _send_response(message=update.message, response=response)
 
         # If auth error hit again, decorator already re-added to backlog — stop
         if "Authentication error" in response and "backlog" in response:

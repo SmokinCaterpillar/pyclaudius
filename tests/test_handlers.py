@@ -444,6 +444,31 @@ async def test_handle_text_scheduled_without_silent_sends_reply(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_handle_text_suppresses_silent_response(tmp_path):
+    update = _make_update(text="hello")
+    context = _make_context(tmp_path)
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
+        mock_claude.return_value = ("[SILENT]", "session-id")
+        await handle_text(update, context)
+        update.message.reply_text.assert_not_called()
+        assert context.bot_data["session"]["session_id"] == "session-id"
+
+
+@pytest.mark.asyncio
+async def test_handle_text_suppresses_silent_case_insensitive(tmp_path):
+    update = _make_update(text="hello")
+    context = _make_context(tmp_path)
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
+        mock_claude.return_value = ("  [silent]\n", "session-id")
+        await handle_text(update, context)
+        update.message.reply_text.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_handle_help_command_shows_cron_commands(tmp_path):
     update = _make_update()
     context = _make_context(tmp_path)
