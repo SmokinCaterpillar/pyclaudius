@@ -1,3 +1,7 @@
+# [0.10.2]
+
+* BUG-FIX: use tmux if stale
+
 # [0.10.1]
 
 * BUG-FIX: restart session if it is stale

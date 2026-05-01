@@ -43,3 +43,12 @@ _AUTH_ERROR_MARKERS: tuple[str, ...] = (
 def is_auth_error(*, response: str) -> bool:
     """Check if a response contains authentication error indicators."""
     return any(marker in response for marker in _AUTH_ERROR_MARKERS)
+
+
+def is_empty_response(*, response: str) -> bool:
+    """Detect a silent ``claude -p`` failure: rc=0 with no output.
+
+    Returns True for empty or whitespace-only strings. A deliberate
+    ``[SILENT]`` reply is not empty and is not treated as a failure.
+    """
+    return not response.strip()

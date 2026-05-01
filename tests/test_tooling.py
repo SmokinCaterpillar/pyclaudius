@@ -6,6 +6,7 @@ from pyclaudius.tooling import (
     authorized,
     check_authorized,
     is_auth_error,
+    is_empty_response,
 )
 
 
@@ -120,3 +121,20 @@ def test_is_auth_error_matches(text: str):
 )
 def test_is_auth_error_no_match(text: str):
     assert is_auth_error(response=text) is False
+
+
+@pytest.mark.parametrize("text", ["", "   ", "\n\t  \n"])
+def test_is_empty_response_matches(text: str):
+    assert is_empty_response(response=text) is True
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Hello",
+        "[SILENT]",
+        "Error: No conversation found with session ID: abc",
+    ],
+)
+def test_is_empty_response_no_match(text: str):
+    assert is_empty_response(response=text) is False
