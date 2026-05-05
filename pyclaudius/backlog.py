@@ -10,9 +10,27 @@ from pathlib import Path
 from typing import TypedDict
 
 from pyclaudius.keepalive import send_tmux_keepalive
-from pyclaudius.tooling import is_auth_error
+from pyclaudius.tooling import is_auth_error, is_empty_response
 
 logger = logging.getLogger(__name__)
+
+
+_AUTH_ERROR = "Authentication error"
+_EMPTY_RESPONSE = "Claude CLI returned no output"
+
+_BACKLOG_HINT: dict[str, str] = {
+    _AUTH_ERROR: "Re-authenticate with 'claude auth login', then /replaybacklog.",
+    _EMPTY_RESPONSE: "Try /replaybacklog later.",
+}
+
+
+def _classify_failure(*, response: str) -> str | None:
+    """Identify recoverable failure modes; returns None on success."""
+    if is_auth_error(response=response):
+        return _AUTH_ERROR
+    if is_empty_response(response=response):
+        return _EMPTY_RESPONSE
+    return None
 
 
 class BacklogItem(TypedDict):
@@ -49,7 +67,16 @@ def format_backlog_list(*, items: list[BacklogItem]) -> str:
 def with_backlog(
     func: Callable[..., Awaitable[tuple[str, str | None]]],
 ) -> Callable[..., Awaitable[tuple[str, str | None]]]:
-    """Save the user's original message to a backlog on auth errors."""
+    """Save the user's original message to a backlog on recoverable failures.
+
+    Two failure modes are treated as recoverable:
+    - Auth errors (markers in stdout, see :func:`is_auth_error`).
+    - Silent ``claude -p`` failures (rc=0 with no output).
+
+    For both, the wrapper attempts a tmux keepalive + retry first; if the
+    retry still fails, the user's original message is appended to the
+    backlog and a tailored error message is returned.
+    """
 
     @wraps(func)
     async def wrapper(**kwargs: object) -> tuple[str, str | None]:
@@ -67,18 +94,19 @@ def with_backlog(
         if not settings.backlog_enabled:
             return response, session_id
 
-        if not is_auth_error(response=response):
+        failure = _classify_failure(response=response)
+        if failure is None:
             return response, session_id
 
         # Retry once via tmux keepalive before saving to backlog
         if settings.tmux_session:
             logger.info(
-                f"Auth error — sending tmux keepalive to {settings.tmux_session!r} and retrying"
+                f"{failure} — sending tmux keepalive to {settings.tmux_session!r} and retrying"
             )
             await send_tmux_keepalive(session_name=settings.tmux_session)
             await asyncio.sleep(5)
             response, session_id = await func(**kwargs)
-            if not is_auth_error(response=response):
+            if _classify_failure(response=response) is None:
                 logger.info("Retry after keepalive succeeded")
                 return response, session_id
             logger.warning("Retry after keepalive still failed — saving to backlog")
@@ -97,10 +125,10 @@ def with_backlog(
         save_backlog(backlog_file=settings.backlog_file, items=backlog)
 
         count = len(backlog)
-        logger.warning(f"Auth error — saved message to backlog ({count} pending)")
+        logger.warning(f"{failure} — saved message to backlog ({count} pending)")
+        hint = _BACKLOG_HINT[failure]
         return (
-            f"Authentication error. Message saved to backlog ({count} pending).\n"
-            "Re-authenticate with 'claude auth login', then /replaybacklog.",
+            f"{failure}. Message saved to backlog ({count} pending).\n{hint}",
             None,
         )
 

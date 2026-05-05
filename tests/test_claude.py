@@ -435,3 +435,160 @@ async def test_call_claude_no_backlog_without_bot_data(mock_process):
         assert "authentication_error" in result
         assert session_id is not None
         mock_exec.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_call_claude_empty_triggers_tmux_retry_and_backlog(tmp_path):
+    """Persistent silent failure triggers tmux keepalive then saves to backlog."""
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.communicate.return_value = (b"", b"")
+
+    backlog_file = tmp_path / "backlog.json"
+    bot_data = {
+        "settings": MagicMock(
+            backlog_enabled=True,
+            backlog_file=backlog_file,
+            tmux_session="claude",
+        ),
+        "backlog": [],
+    }
+
+    with (
+        patch(
+            "pyclaudius.claude.asyncio.create_subprocess_exec",
+            return_value=proc,
+        ),
+        patch(
+            "pyclaudius.backlog.send_tmux_keepalive",
+            new_callable=AsyncMock,
+        ) as mock_keepalive,
+        patch("pyclaudius.backlog.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        result, session_id = await call_claude(
+            prompt="hello",
+            bot_data=bot_data,
+            user_message="original question",
+        )
+        mock_keepalive.assert_awaited_once_with(session_name="claude")
+        assert "Claude CLI returned no output" in result
+        assert "saved to backlog" in result
+        assert session_id is None
+        assert len(bot_data["backlog"]) == 1
+        assert bot_data["backlog"][0]["prompt"] == "original question"
+
+
+@pytest.mark.asyncio
+async def test_call_claude_empty_recovers_after_tmux_retry(tmp_path):
+    """Empty first call, tmux keepalive, retry succeeds — no backlog."""
+    proc1 = AsyncMock()
+    proc1.returncode = 0
+    proc1.communicate.return_value = (b"", b"")
+    proc2 = AsyncMock()
+    proc2.returncode = 0
+    proc2.communicate.return_value = (b"Recovered", b"")
+
+    backlog_file = tmp_path / "backlog.json"
+    bot_data = {
+        "settings": MagicMock(
+            backlog_enabled=True,
+            backlog_file=backlog_file,
+            tmux_session="claude",
+        ),
+        "backlog": [],
+    }
+
+    with (
+        patch(
+            "pyclaudius.claude.asyncio.create_subprocess_exec",
+            side_effect=[proc1, proc2],
+        ),
+        patch(
+            "pyclaudius.backlog.send_tmux_keepalive",
+            new_callable=AsyncMock,
+        ) as mock_keepalive,
+        patch("pyclaudius.backlog.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        result, _ = await call_claude(
+            prompt="hello",
+            bot_data=bot_data,
+            user_message="original question",
+        )
+        mock_keepalive.assert_awaited_once_with(session_name="claude")
+        assert result == "Recovered"
+        assert bot_data["backlog"] == []
+
+
+@pytest.mark.asyncio
+async def test_call_claude_empty_no_retry_without_tmux_session(tmp_path):
+    """Without tmux_session configured, empty response goes straight to backlog."""
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.communicate.return_value = (b"", b"")
+
+    backlog_file = tmp_path / "backlog.json"
+    bot_data = {
+        "settings": MagicMock(
+            backlog_enabled=True,
+            backlog_file=backlog_file,
+            tmux_session=None,
+        ),
+        "backlog": [],
+    }
+
+    with (
+        patch(
+            "pyclaudius.claude.asyncio.create_subprocess_exec",
+            return_value=proc,
+        ) as mock_exec,
+        patch(
+            "pyclaudius.backlog.send_tmux_keepalive",
+            new_callable=AsyncMock,
+        ) as mock_keepalive,
+    ):
+        result, _ = await call_claude(
+            prompt="hello",
+            bot_data=bot_data,
+            user_message="original question",
+        )
+        mock_keepalive.assert_not_awaited()
+        # Only one subprocess call (no retry without tmux_session).
+        assert mock_exec.call_count == 1
+        assert "Claude CLI returned no output" in result
+        assert len(bot_data["backlog"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_call_claude_empty_no_backlog_when_disabled(tmp_path):
+    """With backlog disabled, empty response is returned as-is."""
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.communicate.return_value = (b"", b"")
+
+    bot_data = {
+        "settings": MagicMock(
+            backlog_enabled=False,
+            backlog_file=tmp_path / "backlog.json",
+            tmux_session="claude",
+        ),
+        "backlog": [],
+    }
+
+    with (
+        patch(
+            "pyclaudius.claude.asyncio.create_subprocess_exec",
+            return_value=proc,
+        ),
+        patch(
+            "pyclaudius.backlog.send_tmux_keepalive",
+            new_callable=AsyncMock,
+        ) as mock_keepalive,
+    ):
+        result, _ = await call_claude(
+            prompt="hello",
+            bot_data=bot_data,
+            user_message="original question",
+        )
+        mock_keepalive.assert_not_awaited()
+        assert result == ""
+        assert bot_data["backlog"] == []

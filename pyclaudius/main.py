@@ -67,6 +67,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _on_mcp_task_done(task: asyncio.Task) -> None:
+    """Surface MCP server task termination so it doesn't fail silently."""
+    if task.cancelled():
+        logger.info("MCP server task cancelled")
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error(f"MCP server task crashed: {exc}", exc_info=exc)
+    else:
+        logger.warning("MCP server task exited unexpectedly without an error")
+
+
 async def _post_init(application: Application) -> None:
     """Start the scheduler and MCP server after the event loop is running."""
     scheduler = application.bot_data.get("scheduler")
@@ -84,6 +96,7 @@ async def _post_init(application: Application) -> None:
                 show_banner=False,
             )
         )
+        task.add_done_callback(_on_mcp_task_done)
         application.bot_data["mcp_task"] = task
         logger.info(f"MCP server started on 127.0.0.1:{mcp_port}")
 
