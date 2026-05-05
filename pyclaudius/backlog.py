@@ -1,16 +1,22 @@
 """Backlog storage and decorator for saving failed prompts on auth errors."""
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from functools import wraps
-from pathlib import Path
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict, cast
 
 from pyclaudius.keepalive import send_tmux_keepalive
 from pyclaudius.tooling import is_auth_error, is_empty_response
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from pyclaudius.bot_data import BotData
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +86,7 @@ def with_backlog(
 
     @wraps(func)
     async def wrapper(**kwargs: object) -> tuple[str, str | None]:
-        bot_data = kwargs.pop("bot_data", None)
+        bot_data = cast("BotData | None", kwargs.pop("bot_data", None))
         user_message = kwargs.pop("user_message", None)
 
         response, session_id = await func(**kwargs)
@@ -88,9 +94,7 @@ def with_backlog(
         if bot_data is None:
             return response, session_id
 
-        from pyclaudius.config import Settings
-
-        settings: Settings = bot_data["settings"]  # type: ignore[index]
+        settings = bot_data["settings"]
         if not settings.backlog_enabled:
             return response, session_id
 
@@ -114,14 +118,14 @@ def with_backlog(
         if not user_message or not str(user_message).strip():
             return response, session_id
 
-        backlog: list[BacklogItem] = bot_data.get("backlog", [])  # type: ignore[union-attr]
+        backlog = bot_data["backlog"]
         backlog.append(
             BacklogItem(
                 prompt=str(user_message or ""),
                 created_at=datetime.now(tz=UTC).isoformat(),
             )
         )
-        bot_data["backlog"] = backlog  # type: ignore[index]
+        bot_data["backlog"] = backlog
         save_backlog(backlog_file=settings.backlog_file, items=backlog)
 
         count = len(backlog)

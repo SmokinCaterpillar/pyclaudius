@@ -118,10 +118,7 @@ async def execute_scheduled_job(
     message.set_bot(application.bot)
     update = Update(update_id=_update_counter, message=message)
 
-    scheduled_ids: set[int] = application.bot_data.setdefault(
-        "_scheduled_update_ids", set()
-    )
-    scheduled_ids.add(update.update_id)
+    application.bot_data["_scheduled_update_ids"].add(update.update_id)
 
     await application.process_update(update)
 

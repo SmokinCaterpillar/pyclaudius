@@ -5,11 +5,13 @@ import logging
 from fastmcp import FastMCP
 
 from pyclaudius import operations
+from pyclaudius.backlog import BacklogItem
+from pyclaudius.bot_data import BotData
 
 logger = logging.getLogger(__name__)
 
 
-def create_mcp_server(*, bot_data: dict) -> FastMCP:
+def create_mcp_server(*, bot_data: BotData) -> FastMCP:
     """Create a FastMCP server with tools bound to bot_data via closure."""
     mcp = FastMCP("pyclaudius")
     settings = bot_data["settings"]
@@ -93,7 +95,7 @@ def create_mcp_server(*, bot_data: dict) -> FastMCP:
         @mcp.tool()
         async def replay_backlog() -> str:
             """Pop all backlog items and return their prompts as text."""
-            items: list[dict] = bot_data.get("backlog", [])
+            items: list[BacklogItem] = bot_data["backlog"]
             if not items:
                 return "Backlog is empty."
             prompts: list[str] = []

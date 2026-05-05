@@ -2,13 +2,17 @@ import asyncio
 import contextlib
 import logging
 import os
+from typing import cast
 
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
+from pyclaudius.backlog import BacklogItem
+from pyclaudius.bot_data import BotData, SessionState
 from pyclaudius.claude import call_claude
 from pyclaudius.config import Settings
+from pyclaudius.cron.models import ScheduledJob
 from pyclaudius.memory import format_memory_section
 from pyclaudius.operations import (
     clear_backlog,
@@ -36,21 +40,20 @@ def _get_memory_section(*, settings: Settings, memory: list[str]) -> str | None:
     return None
 
 
-def _get_cron_count(*, settings: Settings, cron_jobs: list[dict]) -> int | None:
+def _get_cron_count(*, settings: Settings, cron_jobs: list[ScheduledJob]) -> int | None:
     if settings.cron_enabled:
         return len(cron_jobs)
     return None
 
 
-def _get_allowed_tools(*, settings: Settings, bot_data: dict) -> list[str]:
+def _get_allowed_tools(*, settings: Settings, bot_data: BotData) -> list[str]:
     """Combine user-configured allowed tools with MCP tool names.
 
     When extra tools (settings or MCP) are specified, built-in tools are
     prepended so that ``--allowedTools`` does not accidentally restrict
     Claude from basic file operations.
     """
-    mcp_tools: list[str] = bot_data.get("mcp_allowed_tools", [])
-    extra = list(settings.allowed_tools) + mcp_tools
+    extra = list(settings.allowed_tools) + bot_data["mcp_allowed_tools"]
     if extra:
         return _BUILTIN_TOOLS + extra
     return extra
@@ -90,7 +93,7 @@ async def _run_claude(
 
 
 def _persist_session_id(
-    *, settings: Settings, session: dict, new_session_id: str | None
+    *, settings: Settings, session: SessionState, new_session_id: str | None
 ) -> None:
     if new_session_id:
         session["session_id"] = new_session_id
@@ -114,19 +117,18 @@ async def _claude_round_trip(
     backlog entry on recoverable failures; ``prompt_user_message`` is the
     (possibly decorated) text fed into ``build_prompt`` for Claude.
     """
-    settings: Settings = context.bot_data["settings"]
-    session: dict = context.bot_data["session"]
+    bot_data = cast(BotData, context.bot_data)
+    settings = bot_data["settings"]
+    session = bot_data["session"]
 
     prompt = build_prompt(
         user_message=prompt_user_message,
         memory_section=_get_memory_section(
-            settings=settings, memory=context.bot_data.get("memory", [])
+            settings=settings, memory=bot_data["memory"]
         ),
-        cron_count=_get_cron_count(
-            settings=settings, cron_jobs=context.bot_data.get("cron_jobs", [])
-        ),
+        cron_count=_get_cron_count(settings=settings, cron_jobs=bot_data["cron_jobs"]),
         is_scheduled=is_scheduled,
-        timezone=context.bot_data.get("user_timezone"),
+        timezone=bot_data.get("user_timezone"),
     )
 
     call_kwargs: dict = dict(
@@ -134,17 +136,17 @@ async def _claude_round_trip(
         claude_path=settings.claude_path,
         session_id=session.get("session_id"),
         resume=True,
-        allowed_tools=_get_allowed_tools(settings=settings, bot_data=context.bot_data),
+        allowed_tools=_get_allowed_tools(settings=settings, bot_data=bot_data),
         cwd=str(settings.claude_work_dir),
         timeout=settings.claude_timeout,
-        bot_data=context.bot_data,
+        bot_data=bot_data,
         user_message=user_message,
     )
     if add_dirs is not None:
         call_kwargs["add_dirs"] = add_dirs
 
     response, new_session_id = await _run_claude(
-        claude_lock=context.bot_data.get("claude_lock"), **call_kwargs
+        claude_lock=bot_data.get("claude_lock"), **call_kwargs
     )
     _persist_session_id(
         settings=settings, session=session, new_session_id=new_session_id
@@ -264,7 +266,7 @@ async def handle_remember_command(
         await update.message.reply_text("Usage: /remember <fact>")
         return
 
-    result = remember_fact(fact=fact, bot_data=context.bot_data)
+    result = remember_fact(fact=fact, bot_data=cast(BotData, context.bot_data))
     await update.message.reply_text(result)
 
 
@@ -288,7 +290,9 @@ async def handle_forget_command(
         return
 
     try:
-        result = forget_memory(keyword=keyword, bot_data=context.bot_data)
+        result = forget_memory(
+            keyword=keyword, bot_data=cast(BotData, context.bot_data)
+        )
     except ValueError as e:
         await update.message.reply_text(str(e))
         return
@@ -310,7 +314,7 @@ async def handle_listmemory_command(
         await update.message.reply_text("Memory is disabled.")
         return
 
-    result = list_memories(bot_data=context.bot_data)
+    result = list_memories(bot_data=cast(BotData, context.bot_data))
     await update.message.reply_text(result)
 
 
@@ -379,7 +383,7 @@ async def handle_listbacklog_command(
         await update.message.reply_text("Backlog is disabled.")
         return
 
-    result = list_backlog(bot_data=context.bot_data)
+    result = list_backlog(bot_data=cast(BotData, context.bot_data))
     await update.message.reply_text(result)
 
 
@@ -397,11 +401,11 @@ async def handle_clearbacklog_command(
         await update.message.reply_text("Backlog is disabled.")
         return
 
-    result = clear_backlog(bot_data=context.bot_data)
+    result = clear_backlog(bot_data=cast(BotData, context.bot_data))
     await update.message.reply_text(result)
 
 
-def _format_backlog_prompt(*, item: dict) -> str:
+def _format_backlog_prompt(*, item: BacklogItem) -> str:
     return f"[Backlog — originally sent at {item['created_at']}]\n{item['prompt']}"
 
 
@@ -419,7 +423,8 @@ async def handle_replaybacklog_command(
         await update.message.reply_text("Backlog is disabled.")
         return
 
-    backlog: list[dict] = context.bot_data.get("backlog", [])
+    bot_data = cast(BotData, context.bot_data)
+    backlog = bot_data["backlog"]
     if not backlog:
         await update.message.reply_text("Backlog is empty.")
         return
@@ -427,8 +432,8 @@ async def handle_replaybacklog_command(
     count = len(backlog)
     await update.message.reply_text(f"Replaying {count} backlog item(s)...")
 
-    while context.bot_data.get("backlog"):
-        item = remove_backlog_item(index=1, bot_data=context.bot_data)
+    while bot_data["backlog"]:
+        item = remove_backlog_item(index=1, bot_data=bot_data)
         await update.message.chat.send_action(action=ChatAction.TYPING)
 
         response, _ = await _claude_round_trip(
@@ -465,7 +470,9 @@ async def handle_replayone_command(
         return
 
     try:
-        item = remove_backlog_item(index=int(arg), bot_data=context.bot_data)
+        item = remove_backlog_item(
+            index=int(arg), bot_data=cast(BotData, context.bot_data)
+        )
     except ValueError as e:
         await update.message.reply_text(str(e))
         return
@@ -498,17 +505,18 @@ async def handle_clear_command(
 ) -> None:
     """Handle /clear command — clear session and start fresh."""
     settings: Settings = context.bot_data["settings"]
-    session: dict = context.bot_data["session"]
+    session: SessionState = context.bot_data["session"]
 
     if not update.message:
         return
 
-    if session.get("session_id"):
+    session_id = session.get("session_id")
+    if session_id:
         await update.message.chat.send_action(action=ChatAction.TYPING)
         await _run_claude(
             claude_lock=context.bot_data.get("claude_lock"),
             **_slash_command_kwargs(
-                prompt="/clear", settings=settings, session_id=session["session_id"]
+                prompt="/clear", settings=settings, session_id=session_id
             ),
         )
 
@@ -523,12 +531,13 @@ async def handle_compact_command(
 ) -> None:
     """Handle /compact command — compact conversation context."""
     settings: Settings = context.bot_data["settings"]
-    session: dict = context.bot_data["session"]
+    session: SessionState = context.bot_data["session"]
 
     if not update.message:
         return
 
-    if not session.get("session_id"):
+    session_id = session.get("session_id")
+    if not session_id:
         await update.message.reply_text("No active session to compact.")
         return
 
@@ -537,7 +546,7 @@ async def handle_compact_command(
     response, new_session_id = await _run_claude(
         claude_lock=context.bot_data.get("claude_lock"),
         **_slash_command_kwargs(
-            prompt="/compact", settings=settings, session_id=session["session_id"]
+            prompt="/compact", settings=settings, session_id=session_id
         ),
     )
     _persist_session_id(
@@ -552,12 +561,13 @@ async def handle_context_command(
 ) -> None:
     """Handle /context command — show context window usage."""
     settings: Settings = context.bot_data["settings"]
-    session: dict = context.bot_data["session"]
+    session: SessionState = context.bot_data["session"]
 
     if not update.message:
         return
 
-    if not session.get("session_id"):
+    session_id = session.get("session_id")
+    if not session_id:
         await update.message.reply_text("No active session.")
         return
 
@@ -566,7 +576,7 @@ async def handle_context_command(
     response, new_session_id = await _run_claude(
         claude_lock=context.bot_data.get("claude_lock"),
         **_slash_command_kwargs(
-            prompt="/context", settings=settings, session_id=session["session_id"]
+            prompt="/context", settings=settings, session_id=session_id
         ),
     )
     _persist_session_id(

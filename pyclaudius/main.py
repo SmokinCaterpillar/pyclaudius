@@ -2,6 +2,7 @@ import asyncio
 import logging
 import sys
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 from apscheduler.triggers.interval import IntervalTrigger
 from telegram import Update
@@ -15,6 +16,7 @@ from telegram.ext import (
 )
 
 from pyclaudius.backlog import load_backlog
+from pyclaudius.bot_data import BotData
 from pyclaudius.config import Settings, ensure_dirs
 from pyclaudius.cron.handlers import (
     handle_addcron_command,
@@ -185,6 +187,7 @@ def main() -> None:
 
     # claude_lock is always created (MCP tools may mutate shared state)
     app.bot_data["claude_lock"] = asyncio.Lock()
+    app.bot_data["_scheduled_update_ids"] = set()
 
     # Cron / scheduling setup
     needs_scheduler = settings.cron_enabled or settings.tmux_session is not None
@@ -250,7 +253,7 @@ def main() -> None:
 
     # MCP server setup (always on — registered with Claude CLI in _post_init)
     mcp_port = find_free_port()
-    mcp_server = create_mcp_server(bot_data=app.bot_data)
+    mcp_server = create_mcp_server(bot_data=cast(BotData, app.bot_data))
     app.bot_data["mcp_server"] = mcp_server
     app.bot_data["mcp_port"] = mcp_port
     app.bot_data["mcp_allowed_tools"] = [get_allowed_tools_wildcard()]

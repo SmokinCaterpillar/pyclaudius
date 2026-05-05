@@ -150,6 +150,7 @@ async def test_execute_scheduled_job_stores_update_id():
     application.bot_data = {
         "cron_jobs": [],
         "settings": MagicMock(cron_file="cron.json"),
+        "_scheduled_update_ids": set(),
     }
     application.bot = MagicMock()
     application.process_update = AsyncMock()
@@ -162,7 +163,6 @@ async def test_execute_scheduled_job_stores_update_id():
         job_type="cron",
     )
 
-    assert "_scheduled_update_ids" in application.bot_data
     # After process_update the ID should still be in the set
     # (it's only removed by handle_text)
     scheduled_ids = application.bot_data["_scheduled_update_ids"]
@@ -182,6 +182,7 @@ async def test_execute_scheduled_job_is_test_does_not_remove_once_job():
     application.bot_data = {
         "cron_jobs": [job_data],
         "settings": MagicMock(cron_file="cron.json"),
+        "_scheduled_update_ids": set(),
     }
     application.bot = MagicMock()
     application.process_update = AsyncMock()
@@ -206,6 +207,7 @@ async def test_execute_scheduled_job_sets_bot_on_chat():
     application.bot_data = {
         "cron_jobs": [],
         "settings": MagicMock(cron_file="cron.json"),
+        "_scheduled_update_ids": set(),
     }
     application.bot = MagicMock()
     application.process_update = AsyncMock()

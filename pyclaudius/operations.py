@@ -10,6 +10,7 @@ import uuid
 from datetime import UTC, datetime
 
 from pyclaudius.backlog import BacklogItem, format_backlog_list, save_backlog
+from pyclaudius.bot_data import BotData
 from pyclaudius.config import Settings
 from pyclaudius.cron.models import ScheduledJob
 from pyclaudius.cron.scheduler import (
@@ -25,7 +26,7 @@ from pyclaudius.memory import add_memories, remove_memories, save_memory
 logger = logging.getLogger(__name__)
 
 
-def add_cron_job(*, expression: str, prompt_text: str, bot_data: dict) -> str:
+def add_cron_job(*, expression: str, prompt_text: str, bot_data: BotData) -> str:
     """Add a recurring cron job. Raises ValueError if the expression is invalid."""
     if not validate_cron_expression(expression=expression):
         raise ValueError(f"Invalid cron expression: {expression}")
@@ -66,7 +67,7 @@ def add_cron_job(*, expression: str, prompt_text: str, bot_data: dict) -> str:
     return f"Cron job added: {expression} — {prompt_text}"
 
 
-def schedule_once(*, datetime_str: str, prompt_text: str, bot_data: dict) -> str:
+def schedule_once(*, datetime_str: str, prompt_text: str, bot_data: BotData) -> str:
     """Schedule a one-time task. Raises ValueError on invalid/past datetime."""
     settings: Settings = bot_data["settings"]
     user_tz: str | None = bot_data.get("user_timezone")
@@ -117,7 +118,7 @@ def schedule_once(*, datetime_str: str, prompt_text: str, bot_data: dict) -> str
     return f"Scheduled one-time task: {datetime_str} — {prompt_text}"
 
 
-def remove_cron_job(*, index: int, bot_data: dict) -> str:
+def remove_cron_job(*, index: int, bot_data: BotData) -> str:
     """Remove a job by 1-based index. Raises ValueError if index is out of range."""
     settings: Settings = bot_data["settings"]
     cron_jobs: list[ScheduledJob] = bot_data.get("cron_jobs", [])
@@ -137,14 +138,14 @@ def remove_cron_job(*, index: int, bot_data: dict) -> str:
     return f"Removed job {index}: {label} {removed['expression']} — {removed['prompt']}"
 
 
-def list_cron_jobs(*, bot_data: dict) -> str:
+def list_cron_jobs(*, bot_data: BotData) -> str:
     """List all scheduled jobs."""
     cron_jobs: list[ScheduledJob] = bot_data.get("cron_jobs", [])
     user_tz: str | None = bot_data.get("user_timezone")
     return format_cron_list(jobs=cron_jobs, display_timezone=user_tz)
 
 
-def remember_fact(*, fact: str, bot_data: dict) -> str:
+def remember_fact(*, fact: str, bot_data: BotData) -> str:
     """Remember a fact about the user. Returns confirmation string."""
     settings: Settings = bot_data["settings"]
     memory: list[str] = bot_data.get("memory", [])
@@ -170,7 +171,7 @@ def remember_fact(*, fact: str, bot_data: dict) -> str:
     return reply
 
 
-def forget_memory(*, keyword: str, bot_data: dict) -> str:
+def forget_memory(*, keyword: str, bot_data: BotData) -> str:
     """Remove memories matching a keyword or 1-based index. Raises ValueError on invalid index."""
     settings: Settings = bot_data["settings"]
     memory: list[str] = bot_data.get("memory", [])
@@ -197,7 +198,7 @@ def forget_memory(*, keyword: str, bot_data: dict) -> str:
     return f'Removed {removed_count} memory/memories matching "{keyword}".'
 
 
-def list_memories(*, bot_data: dict) -> str:
+def list_memories(*, bot_data: BotData) -> str:
     """List all stored memory facts."""
     memory: list[str] = bot_data.get("memory", [])
     if not memory:
@@ -206,13 +207,13 @@ def list_memories(*, bot_data: dict) -> str:
     return f"Stored memories ({len(memory)}):\n\n{lines}"
 
 
-def list_backlog(*, bot_data: dict) -> str:
+def list_backlog(*, bot_data: BotData) -> str:
     """List all pending backlog items."""
     items: list[BacklogItem] = bot_data.get("backlog", [])
     return format_backlog_list(items=items)
 
 
-def clear_backlog(*, bot_data: dict) -> str:
+def clear_backlog(*, bot_data: BotData) -> str:
     """Clear all backlog items."""
     settings: Settings = bot_data["settings"]
     bot_data["backlog"] = []
@@ -221,7 +222,7 @@ def clear_backlog(*, bot_data: dict) -> str:
     return "Backlog cleared."
 
 
-def remove_backlog_item(*, index: int, bot_data: dict) -> BacklogItem:
+def remove_backlog_item(*, index: int, bot_data: BotData) -> BacklogItem:
     """Remove a backlog item by 1-based index. Raises ValueError if out of range."""
     settings: Settings = bot_data["settings"]
     items: list[BacklogItem] = bot_data.get("backlog", [])
