@@ -1,3 +1,8 @@
+# [0.10.3]
+
+* Refactor and simplify
+* typing of BotData
+
 # [0.10.2]
 
 * BUG-FIX: use tmux if stale
