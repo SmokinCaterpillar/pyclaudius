@@ -1,6 +1,7 @@
 import logging
 from datetime import UTC, datetime
 
+from apscheduler.jobstores.base import JobLookupError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
@@ -54,7 +55,7 @@ def unregister_job(*, scheduler: AsyncIOScheduler, job_id: str) -> None:
     """Remove a job from the scheduler if it exists."""
     try:
         scheduler.remove_job(job_id)
-    except Exception:
+    except JobLookupError:
         logger.warning(
             f"Job {job_id} not found in scheduler (already removed or expired)"
         )

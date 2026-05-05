@@ -1,3 +1,7 @@
+# [0.10.3]
+
+* Refactor and simplify
+
 # [0.10.2]
 
 * BUG-FIX: use tmux if stale

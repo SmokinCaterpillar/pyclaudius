@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 from zoneinfo import ZoneInfo
 
 import pytest
+from apscheduler.jobstores.base import JobLookupError
 
 from pyclaudius.cron.scheduler import (
     create_scheduler,
@@ -138,7 +139,7 @@ def test_unregister_job_exists():
 
 def test_unregister_job_not_found():
     scheduler = MagicMock()
-    scheduler.remove_job.side_effect = Exception("not found")
+    scheduler.remove_job.side_effect = JobLookupError("missing")
     unregister_job(scheduler=scheduler, job_id="missing")
     scheduler.remove_job.assert_called_once_with("missing")
 
