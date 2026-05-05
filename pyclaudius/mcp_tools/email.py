@@ -2,6 +2,7 @@
 
 import email
 import email.policy
+import email.utils
 import imaplib
 import logging
 import re
@@ -50,6 +51,39 @@ def _extract_body(*, msg: email.message.Message) -> str:
         if content_type == "text/html":
             return _strip_html_tags(html=payload)
         return payload
+
+
+_FORWARD_MARKERS = (
+    "---------- Forwarded message ---------",
+    "---------- Forwarded message ----------",
+    "Begin forwarded message:",
+    "-----Original Message-----",
+)
+
+
+def _extract_original_sender(*, msg: email.message.Message, body: str) -> str | None:
+    """Find the original sender of a forwarded email.
+
+    Checks headers preserved by some forwarders (``X-Original-From``,
+    ``Resent-From``, ``X-Original-Sender``), then falls back to parsing
+    the first ``From:`` line that appears after a forward boilerplate
+    marker in the body. Returns ``None`` if nothing plausible is found.
+    """
+    for header in ("X-Original-From", "Resent-From", "X-Original-Sender"):
+        value = msg.get(header)
+        if value:
+            return str(value).strip()
+
+    for marker in _FORWARD_MARKERS:
+        idx = body.find(marker)
+        if idx == -1:
+            continue
+        snippet = body[idx : idx + 800]
+        match = re.search(r"^\s*\**\s*From:\s*(.+?)\s*\**\s*$", snippet, re.MULTILINE)
+        if match:
+            return match.group(1).strip()
+
+    return None
 
 
 def _unique_path(*, path: Path) -> Path:
@@ -113,8 +147,16 @@ def download_new_mail(
 
             body = _extract_body(msg=msg)
 
+            original_sender = (
+                _extract_original_sender(msg=msg, body=body) if forwarded_to else None
+            )
+
             # Build date for filename
-            date_obj = email.utils.parsedate_to_datetime(date_str) if date_str != "Unknown" else None
+            date_obj = (
+                email.utils.parsedate_to_datetime(date_str)
+                if date_str != "Unknown"
+                else None
+            )
             date_suffix = date_obj.strftime("%Y-%m-%d") if date_obj else "unknown"
 
             sanitized = _sanitize_subject(subject=subject)
@@ -127,13 +169,17 @@ def download_new_mail(
                 "",
                 f"- **From:** {from_addr}",
             ]
+            if original_sender:
+                lines.append(f"- **Original sender:** {original_sender}")
             if forwarded_to:
                 lines.append(f"- **Forwarded to:** {forwarded_to}")
-            lines.extend([
-                f"- **Date:** {date_str}",
-                "",
-                body,
-            ])
+            lines.extend(
+                [
+                    f"- **Date:** {date_str}",
+                    "",
+                    body,
+                ]
+            )
             file_path.write_text("\n".join(lines), encoding="utf-8")
 
             conn.store(msg_id, "+FLAGS", "\\Seen")

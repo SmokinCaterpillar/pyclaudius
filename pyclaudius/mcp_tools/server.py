@@ -5,7 +5,6 @@ import logging
 from fastmcp import FastMCP
 
 from pyclaudius import operations
-from pyclaudius.mcp_tools import email as email_tools
 from pyclaudius.backlog import BacklogItem
 from pyclaudius.bot_data import BotData
 
@@ -78,17 +77,7 @@ def create_mcp_server(*, bot_data: BotData) -> FastMCP:
         async def download_new_mail() -> str:
             """Download unseen emails from the configured IMAP account and save as markdown files."""
             try:
-                saved = email_tools.download_new_mail(
-                    imap_host=settings.email_imap_host,
-                    imap_port=settings.email_imap_port,
-                    email_user=settings.email_user,
-                    email_password=settings.email_password,
-                    output_dir=str(settings.emails_dir),
-                )
-                if not saved:
-                    return "No new emails."
-                file_list = "\n".join(f"  - {f}" for f in saved)
-                return f"Downloaded {len(saved)} email(s):\n{file_list}"
+                return operations.download_new_mail_op(bot_data=bot_data)
             except Exception as e:
                 return f"Failed to download emails: {e}"
 
@@ -96,15 +85,7 @@ def create_mcp_server(*, bot_data: BotData) -> FastMCP:
         async def delete_read_mail() -> str:
             """Delete all read (SEEN) emails from the configured IMAP account."""
             try:
-                count = email_tools.delete_read_mail(
-                    imap_host=settings.email_imap_host,
-                    imap_port=settings.email_imap_port,
-                    email_user=settings.email_user,
-                    email_password=settings.email_password,
-                )
-                if count == 0:
-                    return "No read emails to delete."
-                return f"Deleted {count} read email(s) from server."
+                return operations.delete_read_mail_op(bot_data=bot_data)
             except Exception as e:
                 return f"Failed to delete emails: {e}"
 

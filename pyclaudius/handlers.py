@@ -16,6 +16,8 @@ from pyclaudius.cron.models import ScheduledJob
 from pyclaudius.memory import format_memory_section
 from pyclaudius.operations import (
     clear_backlog,
+    delete_read_mail_op,
+    download_new_mail_op,
     forget_memory,
     list_backlog,
     list_memories,
@@ -367,6 +369,54 @@ async def handle_timezone_command(
         f'Multiple timezones match "{query}":\n{lines}{extra}\n\n'
         "Please be more specific."
     )
+
+
+@authorized
+async def handle_downloadnewmail_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /downloadnewmail — fetch unseen emails and save as markdown."""
+    settings: Settings = context.bot_data["settings"]
+
+    if not update.message:
+        return
+
+    if not settings.email_enabled:
+        await update.message.reply_text("Email integration is disabled.")
+        return
+
+    try:
+        result = download_new_mail_op(bot_data=cast(BotData, context.bot_data))
+    except Exception:
+        logger.exception("Failed to download emails")
+        await update.message.reply_text("Failed to download emails. Check logs.")
+        return
+
+    await update.message.reply_text(result)
+
+
+@authorized
+async def handle_deleteallreadmail_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /deleteallreadmail — delete all read emails from server."""
+    settings: Settings = context.bot_data["settings"]
+
+    if not update.message:
+        return
+
+    if not settings.email_enabled:
+        await update.message.reply_text("Email integration is disabled.")
+        return
+
+    try:
+        result = delete_read_mail_op(bot_data=cast(BotData, context.bot_data))
+    except Exception:
+        logger.exception("Failed to delete emails")
+        await update.message.reply_text("Failed to delete emails. Check logs.")
+        return
+
+    await update.message.reply_text(result)
 
 
 @authorized

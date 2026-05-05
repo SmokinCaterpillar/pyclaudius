@@ -39,7 +39,7 @@ uv run pyclaudius
 
 pyclaudius runs an in-process MCP server that gives Claude direct tool access. A FastMCP HTTP server starts alongside the bot on `127.0.0.1` and Claude CLI connects to it via `--mcp-config`. This lets Claude call tools mid-conversation, see results, and reason over them.
 
-Tools are registered conditionally based on feature flags (`MEMORY_ENABLED`, `CRON_ENABLED`, `BACKLOG_ENABLED`).
+Tools are registered conditionally based on feature flags (`MEMORY_ENABLED`, `CRON_ENABLED`, `EMAIL_ENABLED`, `BACKLOG_ENABLED`).
 
 ### Available tools
 
@@ -236,7 +236,7 @@ Set the tmux session name:
 TMUX_SESSION=claude
 ```
 
-When configured, an APScheduler job runs every 10 hours and executes `tmux send-keys -t <session> "hello" Enter`. This requires `tmux` to be installed and the named session to exist.
+When configured, an APScheduler job runs every 5 hours 10 minutes and executes `tmux send-keys -t <session> "hello" Enter`. This requires `tmux` to be installed and the named session to exist.
 
 **systemd note:** The service unit uses `PrivateTmp=true`, which isolates `/tmp`. To let the keepalive reach your tmux socket, the unit includes a `BindPaths=` directive that bind-mounts `/tmp/tmux-<UID>`. The default UID is `1000`; if yours differs, update the value in `daemon/pyclaudius.service` (check with `id -u`).
 
