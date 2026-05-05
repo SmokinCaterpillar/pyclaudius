@@ -14,12 +14,14 @@ class Settings(BaseSettings):
     max_memories: int = 100
     cron_enabled: bool = False
     allowed_tools: list[str] = []
-    auto_refresh_auth: bool = False
     email_enabled: bool = False
     email_imap_host: str = "imap.gmail.com"
     email_imap_port: int = 993
     email_user: str = ""
     email_password: str = ""
+    backlog_enabled: bool = True
+    claude_timeout: int = 300
+    tmux_session: str | None = None
 
     def __str__(self) -> str:
         fields = {
@@ -34,7 +36,7 @@ class Settings(BaseSettings):
 
     @property
     def uploads_dir(self) -> Path:
-        return self.relay_dir / "uploads"
+        return self.claude_work_dir / "uploads"
 
     @property
     def session_file(self) -> Path:
@@ -55,6 +57,10 @@ class Settings(BaseSettings):
     @property
     def timezone_file(self) -> Path:
         return self.relay_dir / "timezone.json"
+
+    @property
+    def backlog_file(self) -> Path:
+        return self.relay_dir / "backlog.json"
 
     @property
     def claude_work_dir(self) -> Path:

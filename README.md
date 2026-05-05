@@ -39,7 +39,7 @@ uv run pyclaudius
 
 pyclaudius runs an in-process MCP server that gives Claude direct tool access. A FastMCP HTTP server starts alongside the bot on `127.0.0.1` and Claude CLI connects to it via `--mcp-config`. This lets Claude call tools mid-conversation, see results, and reason over them.
 
-Tools are registered conditionally based on feature flags (`MEMORY_ENABLED`, `CRON_ENABLED`).
+Tools are registered conditionally based on feature flags (`MEMORY_ENABLED`, `CRON_ENABLED`, `BACKLOG_ENABLED`).
 
 ### Available tools
 
@@ -54,6 +54,10 @@ Tools are registered conditionally based on feature flags (`MEMORY_ENABLED`, `CR
 | `list_cron_jobs` | `CRON_ENABLED` | List all scheduled cron jobs |
 | `download_new_mail` | `EMAIL_ENABLED` | Download unseen emails as markdown |
 | `delete_read_mail` | `EMAIL_ENABLED` | Delete all read emails from server |
+| `list_backlog` | `BACKLOG_ENABLED` | List pending backlog items |
+| `clear_backlog` | `BACKLOG_ENABLED` | Clear all pending backlog items |
+| `replay_one` | `BACKLOG_ENABLED` | Pop a single backlog item and return its prompt |
+| `replay_backlog` | `BACKLOG_ENABLED` | Pop all backlog items and return their prompts |
 
 ### Adding your own tools
 
@@ -194,23 +198,47 @@ ALLOWED_TOOLS=["WebSearch","WebFetch"]
 
 MCP tool names are automatically added to the allowed tools list.
 
-## Auto-refresh authentication
+## Replay Backlog
 
-When Claude CLI is used in print mode (`-p`), it does not automatically refresh expired OAuth tokens. pyclaudius can detect authentication errors and spawn a brief interactive Claude session to trigger a token refresh.
+When Claude CLI returns an authentication error (expired token, 401), pyclaudius saves your original message to a persistent backlog and notifies you. After re-authenticating with `claude auth login`, you can replay the saved messages.
 
-**This feature is disabled by default** because it is a gray area in the Claude CLI terms of service — the `-p` flag intentionally skips interactive authentication flows, and this workaround bypasses that by spawning a short-lived interactive session that immediately exits after the token is refreshed.
-
-To enable it:
+This feature is **enabled by default**. To disable it:
 
 ```bash
-AUTO_REFRESH_AUTH=true
+BACKLOG_ENABLED=false
 ```
 
-When enabled, if an API call returns an authentication error (expired token, 401), pyclaudius will:
-1. Spawn `claude` interactively and pipe `/exit` to trigger the OAuth refresh
-2. Retry the original request with the refreshed token
+### Telegram commands
 
-If you are uncomfortable with this approach, leave the setting disabled and manually re-authenticate with `claude auth login` when tokens expire.
+- `/listbacklog` — show pending backlog items
+- `/clearbacklog` — clear all backlog items
+- `/replaybacklog` — replay all backlog items sequentially
+- `/replayone <number>` — replay a single backlog item by index
+
+### How it works
+
+1. You send a message to Claude
+2. Claude CLI returns an authentication error
+3. pyclaudius saves your original message to `~/.pyclaudius-relay/backlog.json`
+4. You receive a notification with the pending count
+5. Re-authenticate: `claude auth login`
+6. Use `/replaybacklog` to resend all saved messages
+
+The backlog is also accessible via MCP tools (`list_backlog`, `clear_backlog`, `replay_one`, `replay_backlog`).
+
+## Tmux Keepalive
+
+Claude CLI auth expires roughly every 15 hours. If you run Claude Code in a tmux session, pyclaudius can periodically send it a "hello" to keep the auth alive.
+
+Set the tmux session name:
+
+```bash
+TMUX_SESSION=claude
+```
+
+When configured, an APScheduler job runs every 10 hours and executes `tmux send-keys -t <session> "hello" Enter`. This requires `tmux` to be installed and the named session to exist.
+
+**systemd note:** The service unit uses `PrivateTmp=true`, which isolates `/tmp`. To let the keepalive reach your tmux socket, the unit includes a `BindPaths=` directive that bind-mounts `/tmp/tmux-<UID>`. The default UID is `1000`; if yours differs, update the value in `daemon/pyclaudius.service` (check with `id -u`).
 
 ## Deploying on a server (Hetzner, etc.)
 

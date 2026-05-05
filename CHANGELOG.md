@@ -1,3 +1,40 @@
+# [0.10.3]
+
+* Refactor and simplify
+* typing of BotData
+
+# [0.10.2]
+
+* BUG-FIX: use tmux if stale
+* mcp taks callback
+
+# [0.10.1]
+
+* BUG-FIX: restart session if it is stale
+
+# [0.10.0] - 2026-04-10
+
+* Image reading fix
+* System prompt fix
+
+# [0.9.1] - 2026-04-03
+
+* /context supported
+
+# [0.9.0] - 2026-03-14
+
+* using tmux session to keep claude alive
+* allow for /clear and /compact
+
+# [0.8.1] - 2026-03-13
+
+* timeout on subprocess call
+* New error handling
+
+# [0.8.0] - 2026-02-11
+
+* todo pile
+
 # [0.7.0] -2026-02-08
 
 * new mcp tooling setup

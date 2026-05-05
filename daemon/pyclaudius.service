@@ -28,6 +28,8 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=/home/YOUR_USERNAME/.pyclaudius-relay /home/YOUR_USERNAME/.claude /home/YOUR_USERNAME/.local/share/claude
+# UPDATE THIS if using TMUX_SESSION: Replace 1000 with your UID (check with 'id -u')
+BindPaths=/tmp/tmux-1000:/tmp/tmux-1000
 PrivateTmp=true
 CapabilityBoundingSet=
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

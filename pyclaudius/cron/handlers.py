@@ -1,8 +1,10 @@
 import logging
+from typing import cast
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from pyclaudius.bot_data import BotData
 from pyclaudius.config import Settings
 from pyclaudius.cron.models import ScheduledJob
 from pyclaudius.cron.scheduler import execute_scheduled_job
@@ -45,7 +47,9 @@ async def handle_addcron_command(
 
     try:
         result = add_cron_job(
-            expression=expression, prompt_text=prompt_text, bot_data=context.bot_data
+            expression=expression,
+            prompt_text=prompt_text,
+            bot_data=cast(BotData, context.bot_data),
         )
     except ValueError as e:
         await update.message.reply_text(str(e))
@@ -91,7 +95,7 @@ async def handle_schedule_command(
         result = schedule_once(
             datetime_str=datetime_str,
             prompt_text=prompt_text,
-            bot_data=context.bot_data,
+            bot_data=cast(BotData, context.bot_data),
         )
     except ValueError as e:
         await update.message.reply_text(str(e))
@@ -122,7 +126,7 @@ async def handle_removecron_command(
     index = int(text)
 
     try:
-        result = remove_cron_job(index=index, bot_data=context.bot_data)
+        result = remove_cron_job(index=index, bot_data=cast(BotData, context.bot_data))
     except ValueError as e:
         await update.message.reply_text(str(e))
         return
@@ -190,5 +194,5 @@ async def handle_listcron_command(
         await update.message.reply_text("Cron scheduling is disabled.")
         return
 
-    text = list_cron_jobs(bot_data=context.bot_data)
+    text = list_cron_jobs(bot_data=cast(BotData, context.bot_data))
     await update.message.reply_text(text)

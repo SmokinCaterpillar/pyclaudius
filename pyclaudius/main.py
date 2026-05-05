@@ -1,16 +1,22 @@
 import asyncio
 import logging
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from typing import cast
 
+from apscheduler.triggers.interval import IntervalTrigger
+from telegram import Update
 from telegram.ext import (
     Application,
     ApplicationBuilder,
     CommandHandler,
+    ContextTypes,
     MessageHandler,
     filters,
 )
 
+from pyclaudius.backlog import load_backlog
+from pyclaudius.bot_data import BotData
 from pyclaudius.config import Settings, ensure_dirs
 from pyclaudius.cron.handlers import (
     handle_addcron_command,
@@ -27,15 +33,23 @@ from pyclaudius.cron.scheduler import (
 )
 from pyclaudius.cron.store import load_cron_jobs, save_cron_jobs
 from pyclaudius.handlers import (
+    handle_clear_command,
+    handle_clearbacklog_command,
+    handle_compact_command,
+    handle_context_command,
     handle_document,
     handle_forget_command,
     handle_help_command,
+    handle_listbacklog_command,
     handle_listmemory_command,
     handle_photo,
     handle_remember_command,
+    handle_replaybacklog_command,
+    handle_replayone_command,
     handle_text,
     handle_timezone_command,
 )
+from pyclaudius.keepalive import send_tmux_keepalive
 from pyclaudius.lockfile import acquire_lock, release_lock, setup_signal_handlers
 from pyclaudius.mcp_tools.config import (
     find_free_port,
@@ -59,6 +73,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _on_mcp_task_done(task: asyncio.Task) -> None:
+    """Surface MCP server task termination so it doesn't fail silently."""
+    if task.cancelled():
+        logger.info("MCP server task cancelled")
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error(f"MCP server task crashed: {exc}", exc_info=exc)
+    else:
+        logger.warning("MCP server task exited unexpectedly without an error")
+
+
 async def _post_init(application: Application) -> None:
     """Start the scheduler and MCP server after the event loop is running."""
     scheduler = application.bot_data.get("scheduler")
@@ -76,6 +102,7 @@ async def _post_init(application: Application) -> None:
                 show_banner=False,
             )
         )
+        task.add_done_callback(_on_mcp_task_done)
         application.bot_data["mcp_task"] = task
         logger.info(f"MCP server started on 127.0.0.1:{mcp_port}")
 
@@ -112,6 +139,15 @@ async def _post_shutdown(application: Application) -> None:
     logger.info("Unregistered MCP server from Claude CLI")
 
 
+async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log exceptions and notify the user."""
+    logger.error(
+        f"Exception while handling update: {context.error}", exc_info=context.error
+    )
+    if isinstance(update, Update) and update.message:
+        await update.message.reply_text(f"Error: {context.error}")
+
+
 def main() -> None:
     settings = Settings()
     logger.info(f"Started pyclaudius {__version__} with {settings!s}")
@@ -141,17 +177,30 @@ def main() -> None:
         app.bot_data["memory"] = []
         logger.info("Memory disabled")
 
+    if settings.backlog_enabled:
+        app.bot_data["backlog"] = load_backlog(backlog_file=settings.backlog_file)
+        logger.info(
+            f"Backlog enabled with {len(app.bot_data['backlog'])} pending item(s)"
+        )
+    else:
+        app.bot_data["backlog"] = []
+        logger.info("Backlog disabled")
+
     app.bot_data["user_timezone"] = load_timezone(timezone_file=settings.timezone_file)
     logger.info(f"User timezone: {app.bot_data['user_timezone'] or 'UTC (default)'}")
 
     # claude_lock is always created (MCP tools may mutate shared state)
     app.bot_data["claude_lock"] = asyncio.Lock()
+    app.bot_data["_scheduled_update_ids"] = set()
 
     # Cron / scheduling setup
-    if settings.cron_enabled:
+    needs_scheduler = settings.cron_enabled or settings.tmux_session is not None
+
+    if needs_scheduler:
         scheduler = create_scheduler()
         app.bot_data["scheduler"] = scheduler
 
+    if settings.cron_enabled:
         cron_jobs = load_cron_jobs(cron_file=settings.cron_file)
 
         # Filter out past one-time jobs
@@ -194,15 +243,30 @@ def main() -> None:
         app.bot_data["cron_jobs"] = []
         logger.info("Cron disabled")
 
+    if settings.tmux_session:
+        scheduler.add_job(
+            send_tmux_keepalive,
+            trigger=IntervalTrigger(hours=5, minutes=10),
+            id="tmux-keepalive",
+            kwargs={"session_name": settings.tmux_session},
+            next_run_time=datetime.now(tz=UTC) + timedelta(seconds=10),
+        )
+        logger.info(
+            f"Tmux keepalive enabled for session {settings.tmux_session!r} (every 5h)"
+        )
+
     # MCP server setup (always on — registered with Claude CLI in _post_init)
     mcp_port = find_free_port()
-    mcp_server = create_mcp_server(bot_data=app.bot_data)
+    mcp_server = create_mcp_server(bot_data=cast(BotData, app.bot_data))
     app.bot_data["mcp_server"] = mcp_server
     app.bot_data["mcp_port"] = mcp_port
     app.bot_data["mcp_allowed_tools"] = [get_allowed_tools_wildcard()]
     logger.info(f"MCP enabled on port {mcp_port}")
 
     app.add_handler(CommandHandler("help", handle_help_command))
+    app.add_handler(CommandHandler("clear", handle_clear_command))
+    app.add_handler(CommandHandler("compact", handle_compact_command))
+    app.add_handler(CommandHandler("context", handle_context_command))
     app.add_handler(CommandHandler("timezone", handle_timezone_command))
     app.add_handler(CommandHandler("remember", handle_remember_command))
     app.add_handler(CommandHandler("listmemory", handle_listmemory_command))
@@ -214,9 +278,15 @@ def main() -> None:
     app.add_handler(CommandHandler("testcron", handle_testcron_command))
     app.add_handler(CommandHandler("downloadnewmail", handle_downloadnewmail_command))
     app.add_handler(CommandHandler("deleteallreadmail", handle_deleteallreadmail_command))
+    app.add_handler(CommandHandler("listbacklog", handle_listbacklog_command))
+    app.add_handler(CommandHandler("clearbacklog", handle_clearbacklog_command))
+    app.add_handler(CommandHandler("replaybacklog", handle_replaybacklog_command))
+    app.add_handler(CommandHandler("replayone", handle_replayone_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+
+    app.add_error_handler(_error_handler)
 
     logger.info(f"Bot starting with relay dir: {settings.relay_dir}")
 

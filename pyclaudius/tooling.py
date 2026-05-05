@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from functools import wraps
@@ -46,48 +45,10 @@ def is_auth_error(*, response: str) -> bool:
     return any(marker in response for marker in _AUTH_ERROR_MARKERS)
 
 
-async def refresh_auth(*, claude_path: str = "claude") -> bool:
-    """Spawn Claude interactively to trigger an OAuth token refresh.
+def is_empty_response(*, response: str) -> bool:
+    """Detect a silent ``claude -p`` failure: rc=0 with no output.
 
-    Pipes ``/exit`` to stdin so the process closes immediately.
-    Returns True if the process exits with code 0.
+    Returns True for empty or whitespace-only strings. A deliberate
+    ``[SILENT]`` reply is not empty and is not treated as a failure.
     """
-    try:
-        from pyclaudius.claude import _build_subprocess_env
-
-        proc = await asyncio.create_subprocess_exec(
-            claude_path,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=_build_subprocess_env(),
-        )
-        await asyncio.wait_for(proc.communicate(input=b"/exit\n"), timeout=30)
-        return proc.returncode == 0
-    except TimeoutError:
-        logger.error("Token refresh timed out")
-        return False
-
-
-def with_auth_retry(
-    func: Callable[..., Awaitable[tuple[str, str | None]]],
-) -> Callable[..., Awaitable[tuple[str, str | None]]]:
-    """Retry *func* once after refreshing the OAuth token on auth errors."""
-
-    @wraps(func)
-    async def wrapper(**kwargs: object) -> tuple[str, str | None]:
-        auto_refresh = kwargs.pop("auto_refresh_auth", False)
-        response, session_id = await func(**kwargs)
-        if auto_refresh and is_auth_error(response=response):
-            logger.warning("Auth error detected, attempting token refresh...")
-            refreshed = await refresh_auth(
-                claude_path=str(kwargs.get("claude_path", "claude")),
-            )
-            if refreshed:
-                logger.info("Token refreshed successfully, retrying...")
-                response, session_id = await func(**kwargs)
-            else:
-                logger.error("Token refresh failed")
-        return response, session_id
-
-    return wrapper
+    return not response.strip()

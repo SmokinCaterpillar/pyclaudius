@@ -24,9 +24,10 @@ def test_settings_derived_paths(tmp_path, monkeypatch):
     monkeypatch.setenv("RELAY_DIR", str(relay))
     s = Settings()
     assert s.temp_dir == relay / "temp"
-    assert s.uploads_dir == relay / "uploads"
+    assert s.uploads_dir == relay / "claude-work" / "uploads"
     assert s.session_file == relay / "session.json"
     assert s.lock_file == relay / "bot.lock"
+    assert s.backlog_file == relay / "backlog.json"
     assert s.claude_work_dir == relay / "claude-work"
 
 
@@ -75,11 +76,11 @@ def test_settings_str_masks_token(monkeypatch):
     assert "12345" in result
 
 
-def test_settings_auto_refresh_auth_default(monkeypatch):
+def test_settings_backlog_enabled_default(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
     monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
     s = Settings()
-    assert s.auto_refresh_auth is False
+    assert s.backlog_enabled is True
 
 
 def test_settings_timezone_file(tmp_path, monkeypatch):
@@ -89,6 +90,36 @@ def test_settings_timezone_file(tmp_path, monkeypatch):
     monkeypatch.setenv("RELAY_DIR", str(relay))
     s = Settings()
     assert s.timezone_file == relay / "timezone.json"
+
+
+def test_settings_claude_timeout_default(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    s = Settings()
+    assert s.claude_timeout == 300
+
+
+def test_settings_claude_timeout_from_env(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    monkeypatch.setenv("CLAUDE_TIMEOUT", "60")
+    s = Settings()
+    assert s.claude_timeout == 60
+
+
+def test_settings_tmux_session_default_none(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    s = Settings()
+    assert s.tmux_session is None
+
+
+def test_settings_tmux_session_from_env(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    monkeypatch.setenv("TMUX_SESSION", "claude")
+    s = Settings()
+    assert s.tmux_session == "claude"
 
 
 def test_ensure_dirs_idempotent(tmp_path, monkeypatch):

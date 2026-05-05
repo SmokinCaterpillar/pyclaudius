@@ -35,10 +35,15 @@ def test_build_prompt_is_scheduled_includes_silent_instruction():
     assert "automated scheduled task" in result
 
 
-def test_build_prompt_not_scheduled_no_silent_instruction():
+def test_build_prompt_not_scheduled_no_scheduled_hint():
     result = build_prompt(user_message="test", cron_count=1, is_scheduled=False)
-    assert "[SILENT]" not in result
     assert "automated scheduled task" not in result
+
+
+def test_build_prompt_includes_silent_guidance():
+    result = build_prompt(user_message="hi")
+    assert "[SILENT]" in result
+    assert "empty" in result.lower()
 
 
 def test_build_prompt_with_timezone():
