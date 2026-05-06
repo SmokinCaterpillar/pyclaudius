@@ -152,6 +152,8 @@ When a scheduled job fires, Claude is instructed to respond with `[SILENT]` if t
 
 pyclaudius can fetch emails from a dedicated IMAP account (e.g. a Gmail address that receives forwarded mail) and save them as markdown files in the Claude working directory. This lets Claude read and reason over your emails.
 
+> **Warning — pyclaudius can permanently delete emails from the server.** The `/deleteallreadmail` command (and the `delete_read_mail` MCP tool) issues an IMAP `EXPUNGE` with no undo. For this reason, **the recommended setup is a dedicated Gmail account** that only receives forwarded copies of emails you care about. That way you can grant pyclaudius full access without risking your primary inbox.
+
 ### Telegram commands
 
 - `/downloadnewmail` — download unseen emails and save as markdown files
@@ -166,6 +168,8 @@ When enabled, two MCP tools are also registered so Claude can fetch and clean ma
 | `download_new_mail` | Download unseen emails and save as markdown |
 | `delete_read_mail` | Delete all read (SEEN) emails from the server |
 
+For forwarded emails, pyclaudius extracts and records the **original sender** rather than just the forwarder. It checks preserved headers (`X-Original-From`, `Resent-From`, `X-Original-Sender`) first, then falls back to scanning the body for Gmail / Outlook / Apple Mail forward boilerplate. The `**Original sender:**` field appears in the saved markdown when found.
+
 ### Configuration
 
 ```bash
@@ -177,6 +181,25 @@ EMAIL_PASSWORD=your-app-password
 ```
 
 For Gmail, use an [App Password](https://support.google.com/accounts/answer/185833) (not your regular password). Emails are saved to `~/.pyclaudius-relay/claude-work/emails/` as markdown files.
+
+### Gmail setup
+
+1. **Create a dedicated Gmail account** (e.g. `yourname-ai@gmail.com`). Never use your primary inbox — pyclaudius has delete access.
+
+2. **Forward mail to it.** In your primary Gmail: Settings → See all settings → Forwarding and POP/IMAP → *Add a forwarding address*. Add the new address and confirm. You can also create a filter (Settings → Filters → Create new filter) to forward only specific senders or subjects instead of everything.
+
+3. **Enable 2-Step Verification** on the dedicated account. This is required before App Passwords are available: Google Account → Security → 2-Step Verification → Turn on.
+
+4. **Create an App Password**: Google Account → Security → App passwords → choose *Mail* (or *Other — custom name*) → Generate. Copy the 16-character password shown — you won't see it again.
+
+5. **Enable IMAP** in the dedicated Gmail: Settings gear → See all settings → Forwarding and POP/IMAP → IMAP access: *Enable IMAP* → Save Changes.
+
+6. **Set credentials** in `.env`:
+
+```bash
+EMAIL_USER=yourname-ai@gmail.com
+EMAIL_PASSWORD=abcd efgh ijkl mnop   # the 16-char App Password (spaces optional)
+```
 
 ## Timezone
 
