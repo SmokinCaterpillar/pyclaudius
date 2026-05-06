@@ -37,7 +37,7 @@ uv run pyclaudius
 
 ## MCP Tools
 
-pyclaudius runs an in-process MCP server that gives Claude direct tool access. A FastMCP HTTP server starts alongside the bot on `127.0.0.1` and Claude CLI connects to it via `--mcp-config`. This lets Claude call tools mid-conversation, see results, and reason over them.
+pyclaudius runs an in-process MCP server that gives Claude direct tool access. A FastMCP HTTP server starts alongside the bot on `127.0.0.1`, and at startup pyclaudius registers it with Claude CLI via `claude mcp add --transport http --scope project`. This lets Claude call tools mid-conversation, see results, and reason over them.
 
 Tools are registered conditionally based on feature flags (`MEMORY_ENABLED`, `CRON_ENABLED`, `EMAIL_ENABLED`, `BACKLOG_ENABLED`).
 
@@ -66,30 +66,26 @@ You can extend Claude with custom MCP tools by writing a plain Python function a
 **1. Create a new module** in `pyclaudius/mcp_tools/` with your functions:
 
 ```python
-# pyclaudius/mcp_tools/uptime.py
-import datetime
+# pyclaudius/mcp_tools/timezone_tool.py
 
 
-def get_bot_uptime(*, bot_data: dict) -> str:
-    """Return how long the bot has been running."""
-    started: datetime.datetime = bot_data["started_at"]
-    delta = datetime.datetime.now(tz=datetime.UTC) - started
-    hours, remainder = divmod(int(delta.total_seconds()), 3600)
-    minutes, seconds = divmod(remainder, 60)
-    return f"Uptime: {hours}h {minutes}m {seconds}s"
+def get_active_timezone(*, bot_data: dict) -> str:
+    """Return the user's configured timezone."""
+    tz = bot_data.get("user_timezone")
+    return f"Active timezone: {tz or 'UTC (default)'}"
 ```
 
-Your functions can accept `bot_data` — a shared dict that holds `settings`, `memory`, `cron_jobs`, `scheduler`, and anything else stored on `app.bot_data` in `main.py`. This gives your tool full access to bot state and configuration.
+Your functions can accept `bot_data` — a shared dict typed as `BotData` (see `pyclaudius/bot_data.py` for all available keys, including `settings`, `memory`, `cron_jobs`, `backlog`, `user_timezone`, and `scheduler`). This gives your tool full access to bot state and configuration.
 
 **2. Register it as an MCP tool** in `pyclaudius/mcp_tools/server.py` inside `create_mcp_server()`:
 
 ```python
-from pyclaudius.mcp_tools import uptime
+from pyclaudius.mcp_tools import timezone_tool
 
 @mcp.tool()
-async def get_bot_uptime() -> str:
-    """Return how long the bot has been running."""
-    return uptime.get_bot_uptime(bot_data=bot_data)
+async def get_active_timezone() -> str:
+    """Return the user's configured timezone."""
+    return timezone_tool.get_active_timezone(bot_data=bot_data)
 ```
 
 The `@mcp.tool()` decorator exposes the function to Claude via MCP. The docstring becomes the tool description that Claude sees. The `bot_data` dict is captured via closure from the enclosing `create_mcp_server()` function.
