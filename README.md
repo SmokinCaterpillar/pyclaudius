@@ -35,6 +35,13 @@ See [`.env.example`](.env.example) for all available options.
 uv run pyclaudius
 ```
 
+## Session commands
+
+- `/help` — list all available commands
+- `/clear` — end the current session and start fresh
+- `/compact` — compact the conversation context to free up context window space
+- `/context` — show current context window usage
+
 ## MCP Tools
 
 pyclaudius runs an in-process MCP server that gives Claude direct tool access. A FastMCP HTTP server starts alongside the bot on `127.0.0.1`, and at startup pyclaudius registers it with Claude CLI via `claude mcp add --transport http --scope project`. This lets Claude call tools mid-conversation, see results, and reason over them.
