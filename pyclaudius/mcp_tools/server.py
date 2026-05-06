@@ -71,6 +71,24 @@ def create_mcp_server(*, bot_data: BotData) -> FastMCP:
             """List all stored memory facts about the user."""
             return operations.list_memories(bot_data=bot_data)
 
+    if settings.email_enabled:
+
+        @mcp.tool()
+        async def download_new_mail() -> str:
+            """Download unseen emails from the configured IMAP account and save as markdown files."""
+            try:
+                return operations.download_new_mail_op(bot_data=bot_data)
+            except Exception as e:
+                return f"Failed to download emails: {e}"
+
+        @mcp.tool()
+        async def delete_read_mail() -> str:
+            """Delete all read (SEEN) emails from the configured IMAP account."""
+            try:
+                return operations.delete_read_mail_op(bot_data=bot_data)
+            except Exception as e:
+                return f"Failed to delete emails: {e}"
+
     if settings.backlog_enabled:
 
         @mcp.tool()

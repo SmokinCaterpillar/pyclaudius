@@ -35,11 +35,18 @@ See [`.env.example`](.env.example) for all available options.
 uv run pyclaudius
 ```
 
+## Session commands
+
+- `/help` — list all available commands
+- `/clear` — end the current session and start fresh
+- `/compact` — compact the conversation context to free up context window space
+- `/context` — show current context window usage
+
 ## MCP Tools
 
-pyclaudius runs an in-process MCP server that gives Claude direct tool access. A FastMCP HTTP server starts alongside the bot on `127.0.0.1` and Claude CLI connects to it via `--mcp-config`. This lets Claude call tools mid-conversation, see results, and reason over them.
+pyclaudius runs an in-process MCP server that gives Claude direct tool access. A FastMCP HTTP server starts alongside the bot on `127.0.0.1`, and at startup pyclaudius registers it with Claude CLI via `claude mcp add --transport http --scope project`. This lets Claude call tools mid-conversation, see results, and reason over them.
 
-Tools are registered conditionally based on feature flags (`MEMORY_ENABLED`, `CRON_ENABLED`, `BACKLOG_ENABLED`).
+Tools are registered conditionally based on feature flags (`MEMORY_ENABLED`, `CRON_ENABLED`, `EMAIL_ENABLED`, `BACKLOG_ENABLED`).
 
 ### Available tools
 
@@ -52,6 +59,8 @@ Tools are registered conditionally based on feature flags (`MEMORY_ENABLED`, `CR
 | `schedule_once` | `CRON_ENABLED` | Schedule a one-time task at a specific datetime |
 | `remove_cron_job` | `CRON_ENABLED` | Remove a scheduled job by index |
 | `list_cron_jobs` | `CRON_ENABLED` | List all scheduled cron jobs |
+| `download_new_mail` | `EMAIL_ENABLED` | Download unseen emails as markdown |
+| `delete_read_mail` | `EMAIL_ENABLED` | Delete all read emails from server |
 | `list_backlog` | `BACKLOG_ENABLED` | List pending backlog items |
 | `clear_backlog` | `BACKLOG_ENABLED` | Clear all pending backlog items |
 | `replay_one` | `BACKLOG_ENABLED` | Pop a single backlog item and return its prompt |
@@ -64,30 +73,26 @@ You can extend Claude with custom MCP tools by writing a plain Python function a
 **1. Create a new module** in `pyclaudius/mcp_tools/` with your functions:
 
 ```python
-# pyclaudius/mcp_tools/uptime.py
-import datetime
+# pyclaudius/mcp_tools/timezone_tool.py
 
 
-def get_bot_uptime(*, bot_data: dict) -> str:
-    """Return how long the bot has been running."""
-    started: datetime.datetime = bot_data["started_at"]
-    delta = datetime.datetime.now(tz=datetime.UTC) - started
-    hours, remainder = divmod(int(delta.total_seconds()), 3600)
-    minutes, seconds = divmod(remainder, 60)
-    return f"Uptime: {hours}h {minutes}m {seconds}s"
+def get_active_timezone(*, bot_data: dict) -> str:
+    """Return the user's configured timezone."""
+    tz = bot_data.get("user_timezone")
+    return f"Active timezone: {tz or 'UTC (default)'}"
 ```
 
-Your functions can accept `bot_data` — a shared dict that holds `settings`, `memory`, `cron_jobs`, `scheduler`, and anything else stored on `app.bot_data` in `main.py`. This gives your tool full access to bot state and configuration.
+Your functions can accept `bot_data` — a shared dict typed as `BotData` (see `pyclaudius/bot_data.py` for all available keys, including `settings`, `memory`, `cron_jobs`, `backlog`, `user_timezone`, and `scheduler`). This gives your tool full access to bot state and configuration.
 
 **2. Register it as an MCP tool** in `pyclaudius/mcp_tools/server.py` inside `create_mcp_server()`:
 
 ```python
-from pyclaudius.mcp_tools import uptime
+from pyclaudius.mcp_tools import timezone_tool
 
 @mcp.tool()
-async def get_bot_uptime() -> str:
-    """Return how long the bot has been running."""
-    return uptime.get_bot_uptime(bot_data=bot_data)
+async def get_active_timezone() -> str:
+    """Return the user's configured timezone."""
+    return timezone_tool.get_active_timezone(bot_data=bot_data)
 ```
 
 The `@mcp.tool()` decorator exposes the function to Claude via MCP. The docstring becomes the tool description that Claude sees. The `bot_data` dict is captured via closure from the enclosing `create_mcp_server()` function.
@@ -145,6 +150,59 @@ Jobs are stored in `~/.pyclaudius-relay/cron.json` and survive restarts.
 ### Silent responses
 
 When a scheduled job fires, Claude is instructed to respond with `[SILENT]` if there is nothing noteworthy to report. This suppresses the Telegram notification, avoiding spam from routine checks.
+
+## Email Integration
+
+pyclaudius can fetch emails from a dedicated IMAP account (e.g. a Gmail address that receives forwarded mail) and save them as markdown files in the Claude working directory. This lets Claude read and reason over your emails.
+
+> **Warning — pyclaudius can permanently delete emails from the server.** The `/deleteallreadmail` command (and the `delete_read_mail` MCP tool) issues an IMAP `EXPUNGE` with no undo. For this reason, **the recommended setup is a dedicated Gmail account** that only receives forwarded copies of emails you care about. That way you can grant pyclaudius full access without risking your primary inbox.
+
+### Telegram commands
+
+- `/downloadnewmail` — download unseen emails and save as markdown files
+- `/deleteallreadmail` — delete all read emails from the server
+
+### MCP tools
+
+When enabled, two MCP tools are also registered so Claude can fetch and clean mail autonomously:
+
+| Tool | Description |
+|------|-------------|
+| `download_new_mail` | Download unseen emails and save as markdown |
+| `delete_read_mail` | Delete all read (SEEN) emails from the server |
+
+For forwarded emails, pyclaudius extracts and records the **original sender** rather than just the forwarder. It checks preserved headers (`X-Original-From`, `Resent-From`, `X-Original-Sender`) first, then falls back to scanning the body for Gmail / Outlook / Apple Mail forward boilerplate. The `**Original sender:**` field appears in the saved markdown when found.
+
+### Configuration
+
+```bash
+EMAIL_ENABLED=true
+EMAIL_IMAP_HOST=imap.gmail.com   # optional, default
+EMAIL_IMAP_PORT=993              # optional, default
+EMAIL_USER=your-llm-email@gmail.com
+EMAIL_PASSWORD=your-app-password
+```
+
+For Gmail, use an [App Password](https://support.google.com/accounts/answer/185833) (not your regular password). Emails are saved to `~/.pyclaudius-relay/claude-work/emails/` as markdown files.
+
+### Gmail setup
+
+1. **Create a dedicated Gmail account** (e.g. `yourname-ai@gmail.com`). Never use your primary inbox — pyclaudius has delete access.
+
+2. **Forward mail to it.** In your primary Gmail: Settings → See all settings → Forwarding and POP/IMAP → *Add a forwarding address*. Add the new address and confirm. You can also create a filter (Settings → Filters → Create new filter) to forward only specific senders or subjects instead of everything.
+
+3. **Enable 2-Step Verification** on the dedicated account. This is required before App Passwords are available: Google Account → Security → 2-Step Verification → Turn on.
+
+4. **Create an App Password**: Google Account → Security → App passwords → choose *Mail* (or *Other — custom name*) → Generate. Copy the 16-character password shown — you won't see it again.
+
+5. **Enable IMAP** in the dedicated Gmail: Settings gear → See all settings → Forwarding and POP/IMAP → IMAP access: *Enable IMAP* → Save Changes.
+
+6. **Set credentials** in `.env`:
+
+```bash
+EMAIL_USER=yourname-ai@gmail.com
+EMAIL_PASSWORD=abcd efgh ijkl mnop   # the 16-char App Password (spaces optional)
+```
 
 ## Timezone
 
@@ -204,7 +262,7 @@ Set the tmux session name:
 TMUX_SESSION=claude
 ```
 
-When configured, an APScheduler job runs every 10 hours and executes `tmux send-keys -t <session> "hello" Enter`. This requires `tmux` to be installed and the named session to exist.
+When configured, an APScheduler job runs every 5 hours 10 minutes and executes `tmux send-keys -t <session> "hello" Enter`. This requires `tmux` to be installed and the named session to exist.
 
 **systemd note:** The service unit uses `PrivateTmp=true`, which isolates `/tmp`. To let the keepalive reach your tmux socket, the unit includes a `BindPaths=` directive that bind-mounts `/tmp/tmux-<UID>`. The default UID is `1000`; if yours differs, update the value in `daemon/pyclaudius.service` (check with `id -u`).
 

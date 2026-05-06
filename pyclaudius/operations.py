@@ -21,6 +21,7 @@ from pyclaudius.cron.scheduler import (
     validate_cron_expression,
 )
 from pyclaudius.cron.store import format_cron_list, save_cron_jobs
+from pyclaudius.mcp_tools.email import delete_read_mail, download_new_mail
 from pyclaudius.memory import add_memories, remove_memories, save_memory
 
 logger = logging.getLogger(__name__)
@@ -220,6 +221,36 @@ def clear_backlog(*, bot_data: BotData) -> str:
     save_backlog(backlog_file=settings.backlog_file, items=[])
     logger.info("Backlog cleared")
     return "Backlog cleared."
+
+
+def download_new_mail_op(*, bot_data: BotData) -> str:
+    """Download unseen emails and save as markdown. Returns a formatted result string."""
+    settings: Settings = bot_data["settings"]
+    saved = download_new_mail(
+        imap_host=settings.email_imap_host,
+        imap_port=settings.email_imap_port,
+        email_user=settings.email_user,
+        email_password=settings.email_password,
+        output_dir=str(settings.emails_dir),
+    )
+    if not saved:
+        return "No new emails."
+    file_list = "\n".join(f"  - {f}" for f in saved)
+    return f"Downloaded {len(saved)} email(s):\n{file_list}"
+
+
+def delete_read_mail_op(*, bot_data: BotData) -> str:
+    """Delete all read emails from the IMAP server. Returns a formatted result string."""
+    settings: Settings = bot_data["settings"]
+    count = delete_read_mail(
+        imap_host=settings.email_imap_host,
+        imap_port=settings.email_imap_port,
+        email_user=settings.email_user,
+        email_password=settings.email_password,
+    )
+    if count == 0:
+        return "No read emails to delete."
+    return f"Deleted {count} read email(s) from server."
 
 
 def remove_backlog_item(*, index: int, bot_data: BotData) -> BacklogItem:

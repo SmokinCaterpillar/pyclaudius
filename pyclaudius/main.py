@@ -37,7 +37,9 @@ from pyclaudius.handlers import (
     handle_clearbacklog_command,
     handle_compact_command,
     handle_context_command,
+    handle_deleteallreadmail_command,
     handle_document,
+    handle_downloadnewmail_command,
     handle_forget_command,
     handle_help_command,
     handle_listbacklog_command,
@@ -272,6 +274,10 @@ def main() -> None:
     app.add_handler(CommandHandler("listcron", handle_listcron_command))
     app.add_handler(CommandHandler("removecron", handle_removecron_command))
     app.add_handler(CommandHandler("testcron", handle_testcron_command))
+    app.add_handler(CommandHandler("downloadnewmail", handle_downloadnewmail_command))
+    app.add_handler(
+        CommandHandler("deleteallreadmail", handle_deleteallreadmail_command)
+    )
     app.add_handler(CommandHandler("listbacklog", handle_listbacklog_command))
     app.add_handler(CommandHandler("clearbacklog", handle_clearbacklog_command))
     app.add_handler(CommandHandler("replaybacklog", handle_replaybacklog_command))
