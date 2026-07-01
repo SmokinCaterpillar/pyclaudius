@@ -1,3 +1,7 @@
+# [0.12.0]
+
+* Allowing to pin the models and effort
+
 # [0.11.0]
 
 * Email integration: fetch unseen emails from an IMAP account and save them as markdown

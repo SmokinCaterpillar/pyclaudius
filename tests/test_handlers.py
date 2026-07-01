@@ -28,6 +28,8 @@ def _make_context(
     allowed_tools=None,
     cron_enabled=False,
     backlog_enabled=True,
+    claude_model=None,
+    claude_effort=None,
 ):
     context = MagicMock()
     claude_work_dir = tmp_path / "claude-work"
@@ -47,6 +49,8 @@ def _make_context(
             backlog_enabled=backlog_enabled,
             backlog_file=tmp_path / "backlog.json",
             claude_timeout=300,
+            claude_model=claude_model,
+            claude_effort=claude_effort,
         ),
         "session": {"session_id": None, "last_activity": ""},
         "memory": [],
@@ -94,6 +98,36 @@ async def test_handle_text_success(tmp_path):
         assert kwargs["user_message"] == "hello claude"
         update.message.reply_text.assert_called_once_with("Hi there!")
         assert context.bot_data["session"]["session_id"] == "session-abc"
+
+
+@pytest.mark.asyncio
+async def test_handle_text_forwards_model_and_effort(tmp_path):
+    update = _make_update(text="hello claude")
+    context = _make_context(
+        tmp_path, claude_model="claude-sonnet-4-6", claude_effort="high"
+    )
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
+        mock_claude.return_value = ("Hi there!", "session-abc")
+        await handle_text(update, context)
+        kwargs = mock_claude.call_args.kwargs
+        assert kwargs["model"] == "claude-sonnet-4-6"
+        assert kwargs["effort"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_handle_text_model_and_effort_default_none(tmp_path):
+    update = _make_update(text="hello claude")
+    context = _make_context(tmp_path)
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
+        mock_claude.return_value = ("Hi there!", "session-abc")
+        await handle_text(update, context)
+        kwargs = mock_claude.call_args.kwargs
+        assert kwargs["model"] is None
+        assert kwargs["effort"] is None
 
 
 @pytest.mark.asyncio
@@ -734,6 +768,23 @@ async def test_handle_clear_command_with_session(tmp_path):
         assert mock_claude.call_args.kwargs["resume"] is True
     assert context.bot_data["session"]["session_id"] is None
     update.message.reply_text.assert_called_once_with("Session cleared.")
+
+
+@pytest.mark.asyncio
+async def test_handle_clear_command_forwards_model_and_effort(tmp_path):
+    """Slash commands also thread claude_model/claude_effort through."""
+    update = _make_update(text="/clear")
+    context = _make_context(
+        tmp_path, claude_model="claude-sonnet-4-6", claude_effort="high"
+    )
+    context.bot_data["session"]["session_id"] = "old-session"
+    with patch(
+        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
+    ) as mock_claude:
+        mock_claude.return_value = ("", None)
+        await handle_clear_command(update, context)
+        assert mock_claude.call_args.kwargs["model"] == "claude-sonnet-4-6"
+        assert mock_claude.call_args.kwargs["effort"] == "high"
 
 
 @pytest.mark.asyncio

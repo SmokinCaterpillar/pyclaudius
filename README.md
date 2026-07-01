@@ -214,6 +214,17 @@ Set your timezone so Claude sees the correct local time and scheduled jobs fire 
 
 The timezone is stored in `~/.pyclaudius-relay/timezone.json`.
 
+## Model & Effort
+
+By default, pyclaudius passes no `--model`/`--effort` flags to the Claude CLI, so it uses whatever the CLI resolves as its default (from that host's `~/.claude/settings.json` or `ANTHROPIC_MODEL`). To pin a specific model or effort level regardless of the CLI's own defaults, set:
+
+```bash
+CLAUDE_MODEL=claude-sonnet-4-6   # optional, e.g. an alias like "opus"/"sonnet" or a full model ID
+CLAUDE_EFFORT=high               # optional: low, medium, high, xhigh, or max
+```
+
+Leave either unset (or empty) to keep using the CLI's default.
+
 ## Allowed Tools
 
 By default, Claude CLI in print mode (`-p`) does not have permission to use tools like `WebSearch` or `WebFetch`. To pre-approve tools, set the `ALLOWED_TOOLS` environment variable:

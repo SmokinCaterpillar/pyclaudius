@@ -48,6 +48,8 @@ async def _spawn_claude(
     resume: bool,
     add_dirs: list[str] | None,
     allowed_tools: list[str] | None,
+    model: str | None,
+    effort: str | None,
     cwd: str | None,
     timeout: int,
 ) -> tuple[str, str | None]:
@@ -64,6 +66,12 @@ async def _spawn_claude(
 
     if allowed_tools:
         args.extend(["--allowedTools", ",".join(allowed_tools)])
+
+    if model:
+        args.extend(["--model", model])
+
+    if effort:
+        args.extend(["--effort", effort])
 
     logger.info(f"Calling Claude (session={session_id}): {prompt[:50]}...")
     logger.info(f"Full command: {' '.join([*args[:2], '<prompt>', *args[3:]])}")
@@ -121,6 +129,8 @@ async def call_claude(
     resume: bool = False,
     add_dirs: list[str] | None = None,
     allowed_tools: list[str] | None = None,
+    model: str | None = None,
+    effort: str | None = None,
     cwd: str | None = None,
     timeout: int = 300,
 ) -> tuple[str, str | None]:
@@ -146,6 +156,8 @@ async def call_claude(
         resume=is_resume,
         add_dirs=add_dirs,
         allowed_tools=allowed_tools,
+        model=model,
+        effort=effort,
         cwd=cwd,
         timeout=timeout,
     )
@@ -162,6 +174,8 @@ async def call_claude(
             resume=False,
             add_dirs=add_dirs,
             allowed_tools=allowed_tools,
+            model=model,
+            effort=effort,
             cwd=cwd,
             timeout=timeout,
         )

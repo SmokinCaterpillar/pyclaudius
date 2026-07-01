@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     email_password: str = ""
     backlog_enabled: bool = True
     claude_timeout: int = 300
+    claude_model: str | None = None
+    claude_effort: str | None = None
     tmux_session: str | None = None
 
     def __str__(self) -> str:
