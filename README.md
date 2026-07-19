@@ -225,6 +225,8 @@ CLAUDE_EFFORT=high               # optional: low, medium, high, xhigh, or max
 
 Leave either unset (or empty) to keep using the CLI's default.
 
+**"Usage credits required for 1M context" error:** models like Sonnet 4.6+ default to a 1M-token context window, which on a Claude subscription plan requires a separate "usage credits" balance turned on at [claude.ai/settings/usage](https://claude.ai/settings/usage). To avoid this without changing billing, pin `CLAUDE_MODEL` to a model with a standard 200k context window instead, e.g. `claude-sonnet-4-5`.
+
 ## Allowed Tools
 
 By default, Claude CLI in print mode (`-p`) does not have permission to use tools like `WebSearch` or `WebFetch`. To pre-approve tools, set the `ALLOWED_TOOLS` environment variable:
@@ -237,7 +239,7 @@ MCP tool names are automatically added to the allowed tools list.
 
 ## Replay Backlog
 
-When Claude CLI returns an authentication error (expired token, 401), pyclaudius saves your original message to a persistent backlog and notifies you. After re-authenticating with `claude auth login`, you can replay the saved messages.
+When Claude CLI returns an authentication error (expired token, 401), an empty/silent response, reports that you've hit your plan's session usage limit, or hits the 1M-context usage-credits gate (see [Model & Effort](#model--effort)), pyclaudius saves your original message to a persistent backlog and notifies you — since the task was never actually executed. After the underlying issue clears (re-authenticate, wait for the session limit to reset, or fix the model/billing config), you can replay the saved messages.
 
 This feature is **enabled by default**. To disable it:
 

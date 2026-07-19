@@ -11,7 +11,12 @@ from functools import wraps
 from typing import TYPE_CHECKING, TypedDict, cast
 
 from pyclaudius.keepalive import send_tmux_keepalive
-from pyclaudius.tooling import is_auth_error, is_empty_response
+from pyclaudius.tooling import (
+    is_auth_error,
+    is_empty_response,
+    is_session_limit_error,
+    is_usage_credits_error,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -23,17 +28,33 @@ logger = logging.getLogger(__name__)
 
 _AUTH_ERROR = "Authentication error"
 _EMPTY_RESPONSE = "Claude CLI returned no output"
+_SESSION_LIMIT = "Session limit reached"
+_USAGE_CREDITS = "Usage credits required for 1M context"
 
 _BACKLOG_HINT: dict[str, str] = {
     _AUTH_ERROR: "Re-authenticate with 'claude auth login', then /replaybacklog.",
     _EMPTY_RESPONSE: "Try /replaybacklog later.",
+    _SESSION_LIMIT: "Try /replaybacklog after the limit resets.",
+    _USAGE_CREDITS: (
+        "Turn on usage credits at claude.ai/settings/usage, or set CLAUDE_MODEL to a "
+        "standard-context model (e.g. claude-sonnet-4-5), then /replaybacklog."
+    ),
 }
+
+# Failure modes where a tmux-keepalive retry can plausibly help. Session
+# limits and usage-credit gates are plan/billing states — retrying
+# immediately just re-hits the same wall.
+_RETRYABLE_FAILURES = frozenset({_AUTH_ERROR, _EMPTY_RESPONSE})
 
 
 def _classify_failure(*, response: str) -> str | None:
     """Identify recoverable failure modes; returns None on success."""
     if is_auth_error(response=response):
         return _AUTH_ERROR
+    if is_session_limit_error(response=response):
+        return _SESSION_LIMIT
+    if is_usage_credits_error(response=response):
+        return _USAGE_CREDITS
     if is_empty_response(response=response):
         return _EMPTY_RESPONSE
     return None
@@ -75,13 +96,19 @@ def with_backlog(
 ) -> Callable[..., Awaitable[tuple[str, str | None]]]:
     """Save the user's original message to a backlog on recoverable failures.
 
-    Two failure modes are treated as recoverable:
+    Four failure modes are treated as recoverable:
     - Auth errors (markers in stdout, see :func:`is_auth_error`).
     - Silent ``claude -p`` failures (rc=0 with no output).
+    - Hitting the Claude plan/session usage limit (see
+      :func:`is_session_limit_error`) — the task was never executed.
+    - Hitting the 1M-context usage-credits gate (see
+      :func:`is_usage_credits_error`) — the task was never executed.
 
-    For both, the wrapper attempts a tmux keepalive + retry first; if the
-    retry still fails, the user's original message is appended to the
-    backlog and a tailored error message is returned.
+    For the first two, the wrapper attempts a tmux keepalive + retry first;
+    the session-limit and usage-credits cases skip the retry (they're
+    plan/billing states a retry can't fix) and go straight to the backlog.
+    In all cases, the user's original message is appended to the backlog
+    and a tailored error message is returned.
     """
 
     @wraps(func)
@@ -103,7 +130,7 @@ def with_backlog(
             return response, session_id
 
         # Retry once via tmux keepalive before saving to backlog
-        if settings.tmux_session:
+        if settings.tmux_session and failure in _RETRYABLE_FAILURES:
             logger.info(
                 f"{failure} — sending tmux keepalive to {settings.tmux_session!r} and retrying"
             )

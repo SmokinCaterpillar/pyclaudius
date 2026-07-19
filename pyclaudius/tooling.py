@@ -45,6 +45,21 @@ def is_auth_error(*, response: str) -> bool:
     return any(marker in response for marker in _AUTH_ERROR_MARKERS)
 
 
+def is_session_limit_error(*, response: str) -> bool:
+    """Check if a response indicates the Claude plan/session usage limit was hit."""
+    return "You've hit your session limit" in response
+
+
+def is_usage_credits_error(*, response: str) -> bool:
+    """Check if a response indicates 1M-context usage credits are required.
+
+    Claude subscription plans gate the 1M-token context window (the
+    default on models like Sonnet 4.6+) behind a separate "usage credits"
+    balance. This is a billing-account state, not something a retry fixes.
+    """
+    return "Usage credits required" in response
+
+
 def is_empty_response(*, response: str) -> bool:
     """Detect a silent ``claude -p`` failure: rc=0 with no output.
 
