@@ -107,6 +107,38 @@ def test_settings_claude_timeout_from_env(monkeypatch):
     assert s.claude_timeout == 60
 
 
+def test_settings_claude_model_default_none(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    monkeypatch.delenv("CLAUDE_MODEL", raising=False)
+    s = Settings()
+    assert s.claude_model is None
+
+
+def test_settings_claude_model_from_env(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    monkeypatch.setenv("CLAUDE_MODEL", "claude-sonnet-4-6")
+    s = Settings()
+    assert s.claude_model == "claude-sonnet-4-6"
+
+
+def test_settings_claude_effort_default_none(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    monkeypatch.delenv("CLAUDE_EFFORT", raising=False)
+    s = Settings()
+    assert s.claude_effort is None
+
+
+def test_settings_claude_effort_from_env(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    monkeypatch.setenv("CLAUDE_EFFORT", "high")
+    s = Settings()
+    assert s.claude_effort == "high"
+
+
 def test_settings_tmux_session_default_none(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
     monkeypatch.setenv("TELEGRAM_USER_ID", "12345")

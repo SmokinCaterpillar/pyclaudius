@@ -149,6 +149,48 @@ async def test_call_claude_allowed_tools_empty(mock_process):
 
 
 @pytest.mark.asyncio
+async def test_call_claude_model(mock_process):
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process
+    ) as mock_exec:
+        await call_claude(prompt="hi", model="claude-sonnet-4-6")
+        args = mock_exec.call_args[0]
+        idx = args.index("--model")
+        assert args[idx + 1] == "claude-sonnet-4-6"
+
+
+@pytest.mark.asyncio
+async def test_call_claude_model_default_omits_flag(mock_process):
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process
+    ) as mock_exec:
+        await call_claude(prompt="hi")
+        args = mock_exec.call_args[0]
+        assert "--model" not in args
+
+
+@pytest.mark.asyncio
+async def test_call_claude_effort(mock_process):
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process
+    ) as mock_exec:
+        await call_claude(prompt="hi", effort="high")
+        args = mock_exec.call_args[0]
+        idx = args.index("--effort")
+        assert args[idx + 1] == "high"
+
+
+@pytest.mark.asyncio
+async def test_call_claude_effort_default_omits_flag(mock_process):
+    with patch(
+        "pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process
+    ) as mock_exec:
+        await call_claude(prompt="hi")
+        args = mock_exec.call_args[0]
+        assert "--effort" not in args
+
+
+@pytest.mark.asyncio
 async def test_call_claude_cwd_passed_to_subprocess(mock_process):
     with patch(
         "pyclaudius.claude.asyncio.create_subprocess_exec", return_value=mock_process

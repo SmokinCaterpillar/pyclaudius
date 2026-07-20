@@ -7,6 +7,8 @@ from pyclaudius.tooling import (
     check_authorized,
     is_auth_error,
     is_empty_response,
+    is_session_limit_error,
+    is_usage_credits_error,
 )
 
 
@@ -121,6 +123,53 @@ def test_is_auth_error_matches(text: str):
 )
 def test_is_auth_error_no_match(text: str):
     assert is_auth_error(response=text) is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "You've hit your session limit · resets 5pm (UTC)",
+        "You've hit your session limit",
+    ],
+)
+def test_is_session_limit_error_matches(text: str):
+    assert is_session_limit_error(response=text) is True
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Hello from Claude",
+        "Error: something went wrong",
+        "API Error: 429 rate limit exceeded",
+    ],
+)
+def test_is_session_limit_error_no_match(text: str):
+    assert is_session_limit_error(response=text) is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "API Error: Usage credits required for 1M context · turn on usage credits "
+        "at claude.ai/settings/usage, or use --model to switch to standard context",
+        "Usage credits required for 1M context",
+    ],
+)
+def test_is_usage_credits_error_matches(text: str):
+    assert is_usage_credits_error(response=text) is True
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Hello from Claude",
+        "Error: something went wrong",
+        "You've hit your session limit · resets 5pm (UTC)",
+    ],
+)
+def test_is_usage_credits_error_no_match(text: str):
+    assert is_usage_credits_error(response=text) is False
 
 
 @pytest.mark.parametrize("text", ["", "   ", "\n\t  \n"])

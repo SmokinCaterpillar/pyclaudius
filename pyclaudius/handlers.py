@@ -139,6 +139,8 @@ async def _claude_round_trip(
         session_id=session.get("session_id"),
         resume=True,
         allowed_tools=_get_allowed_tools(settings=settings, bot_data=bot_data),
+        model=settings.claude_model,
+        effort=settings.claude_effort,
         cwd=str(settings.claude_work_dir),
         timeout=settings.claude_timeout,
         bot_data=bot_data,
@@ -544,6 +546,8 @@ def _slash_command_kwargs(*, prompt: str, settings: Settings, session_id: str) -
         claude_path=settings.claude_path,
         session_id=session_id,
         resume=True,
+        model=settings.claude_model,
+        effort=settings.claude_effort,
         cwd=str(settings.claude_work_dir),
         timeout=settings.claude_timeout,
     )

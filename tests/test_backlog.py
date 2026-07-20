@@ -284,6 +284,136 @@ async def test_with_backlog_auth_error_retry_also_fails(
 
 
 @pytest.mark.asyncio
+async def test_with_backlog_session_limit_saves_prompt(tmp_path) -> None:
+    """Session limit hit — task was never executed, saved to backlog."""
+
+    @with_backlog
+    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
+        return "You've hit your session limit · resets 5pm (UTC)", None
+
+    backlog_file = tmp_path / "backlog.json"
+    bot_data = {
+        "settings": MagicMock(
+            backlog_enabled=True, backlog_file=backlog_file, tmux_session=None
+        ),
+        "backlog": [],
+    }
+    result, session_id = await fake_claude(
+        prompt="hi", bot_data=bot_data, user_message="do the thing"
+    )
+    assert "Session limit reached" in result
+    assert "1 pending" in result
+    assert "resets" in result
+    assert session_id is None
+    assert len(bot_data["backlog"]) == 1
+    assert bot_data["backlog"][0]["prompt"] == "do the thing"
+
+
+@pytest.mark.asyncio
+@patch("pyclaudius.backlog.asyncio.sleep", new_callable=AsyncMock)
+@patch("pyclaudius.backlog.send_tmux_keepalive", new_callable=AsyncMock)
+async def test_with_backlog_session_limit_skips_keepalive_retry(
+    mock_keepalive: AsyncMock,
+    mock_sleep: AsyncMock,
+    tmp_path,
+) -> None:
+    """Session limit + tmux session configured — no retry, straight to backlog.
+
+    Unlike auth errors, a keepalive can't fix a plan-wide usage cap.
+    """
+    call_count = 0
+
+    @with_backlog
+    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
+        nonlocal call_count
+        call_count += 1
+        return "You've hit your session limit · resets 5pm (UTC)", None
+
+    backlog_file = tmp_path / "backlog.json"
+    bot_data = {
+        "settings": MagicMock(
+            backlog_enabled=True, backlog_file=backlog_file, tmux_session="claude0"
+        ),
+        "backlog": [],
+    }
+    result, session_id = await fake_claude(
+        prompt="hi", bot_data=bot_data, user_message="do the thing"
+    )
+    assert "Session limit reached" in result
+    assert session_id is None
+    assert call_count == 1
+    mock_keepalive.assert_not_awaited()
+    mock_sleep.assert_not_awaited()
+    assert len(bot_data["backlog"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_with_backlog_usage_credits_saves_prompt(tmp_path) -> None:
+    """1M-context usage-credits gate hit — task was never executed, backlogged."""
+
+    @with_backlog
+    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
+        return (
+            "API Error: Usage credits required for 1M context · turn on usage "
+            "credits at claude.ai/settings/usage, or use --model to switch to "
+            "standard context",
+            None,
+        )
+
+    backlog_file = tmp_path / "backlog.json"
+    bot_data = {
+        "settings": MagicMock(
+            backlog_enabled=True, backlog_file=backlog_file, tmux_session=None
+        ),
+        "backlog": [],
+    }
+    result, session_id = await fake_claude(
+        prompt="hi", bot_data=bot_data, user_message="do the thing"
+    )
+    assert "Usage credits required for 1M context" in result
+    assert "1 pending" in result
+    assert "CLAUDE_MODEL" in result
+    assert session_id is None
+    assert len(bot_data["backlog"]) == 1
+    assert bot_data["backlog"][0]["prompt"] == "do the thing"
+
+
+@pytest.mark.asyncio
+@patch("pyclaudius.backlog.asyncio.sleep", new_callable=AsyncMock)
+@patch("pyclaudius.backlog.send_tmux_keepalive", new_callable=AsyncMock)
+async def test_with_backlog_usage_credits_skips_keepalive_retry(
+    mock_keepalive: AsyncMock,
+    mock_sleep: AsyncMock,
+    tmp_path,
+) -> None:
+    """Usage-credits gate + tmux session configured — no retry, straight to backlog."""
+    call_count = 0
+
+    @with_backlog
+    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
+        nonlocal call_count
+        call_count += 1
+        return "API Error: Usage credits required for 1M context", None
+
+    backlog_file = tmp_path / "backlog.json"
+    bot_data = {
+        "settings": MagicMock(
+            backlog_enabled=True, backlog_file=backlog_file, tmux_session="claude0"
+        ),
+        "backlog": [],
+    }
+    result, session_id = await fake_claude(
+        prompt="hi", bot_data=bot_data, user_message="do the thing"
+    )
+    assert "Usage credits required for 1M context" in result
+    assert session_id is None
+    assert call_count == 1
+    mock_keepalive.assert_not_awaited()
+    mock_sleep.assert_not_awaited()
+    assert len(bot_data["backlog"]) == 1
+
+
+@pytest.mark.asyncio
 async def test_with_backlog_auth_error_no_tmux_session_no_retry(tmp_path) -> None:
     """Auth error + no tmux session → no keepalive, goes straight to backlog."""
     call_count = 0

@@ -214,6 +214,19 @@ Set your timezone so Claude sees the correct local time and scheduled jobs fire 
 
 The timezone is stored in `~/.pyclaudius-relay/timezone.json`.
 
+## Model & Effort
+
+By default, pyclaudius passes no `--model`/`--effort` flags to the Claude CLI, so it uses whatever the CLI resolves as its default (from that host's `~/.claude/settings.json` or `ANTHROPIC_MODEL`). To pin a specific model or effort level regardless of the CLI's own defaults, set:
+
+```bash
+CLAUDE_MODEL=claude-sonnet-4-6   # optional, e.g. an alias like "opus"/"sonnet" or a full model ID
+CLAUDE_EFFORT=high               # optional: low, medium, high, xhigh, or max
+```
+
+Leave either unset (or empty) to keep using the CLI's default.
+
+**"Usage credits required for 1M context" error:** models like Sonnet 4.6+ default to a 1M-token context window, which on a Claude subscription plan requires a separate "usage credits" balance turned on at [claude.ai/settings/usage](https://claude.ai/settings/usage). To avoid this without changing billing, pin `CLAUDE_MODEL` to a model with a standard 200k context window instead, e.g. `claude-sonnet-4-5`.
+
 ## Allowed Tools
 
 By default, Claude CLI in print mode (`-p`) does not have permission to use tools like `WebSearch` or `WebFetch`. To pre-approve tools, set the `ALLOWED_TOOLS` environment variable:
@@ -226,7 +239,7 @@ MCP tool names are automatically added to the allowed tools list.
 
 ## Replay Backlog
 
-When Claude CLI returns an authentication error (expired token, 401), pyclaudius saves your original message to a persistent backlog and notifies you. After re-authenticating with `claude auth login`, you can replay the saved messages.
+When Claude CLI returns an authentication error (expired token, 401), an empty/silent response, reports that you've hit your plan's session usage limit, or hits the 1M-context usage-credits gate (see [Model & Effort](#model--effort)), pyclaudius saves your original message to a persistent backlog and notifies you — since the task was never actually executed. After the underlying issue clears (re-authenticate, wait for the session limit to reset, or fix the model/billing config), you can replay the saved messages.
 
 This feature is **enabled by default**. To disable it:
 
