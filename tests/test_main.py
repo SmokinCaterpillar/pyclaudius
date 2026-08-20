@@ -10,6 +10,7 @@ from pyclaudius.main import (
     _load_settings,
     _on_mcp_task_done,
     _post_shutdown,
+    _retired_setting_message,
     configure_logging,
 )
 
@@ -113,9 +114,12 @@ def test_load_settings_exits_on_retired_claude_vars(tmp_path, monkeypatch, caplo
     with caplog.at_level(logging.ERROR), pytest.raises(SystemExit) as exc:
         _load_settings()
     assert exc.value.code == 1
-    assert "CLAUDE_MODEL is no longer supported" in caplog.text
+    assert "CLAUDE_MODEL has been renamed" in caplog.text
     assert "OPENCODE_MODEL" in caplog.text
     assert "TMUX_SESSION is no longer supported" in caplog.text
+    # A dropped setting has no replacement to name — the old wording produced
+    # "use (removed — the tmux keepalive is gone) instead".
+    assert "use (removed" not in caplog.text
 
 
 def test_load_settings_reraises_other_validation_errors(tmp_path, monkeypatch):
@@ -180,3 +184,25 @@ async def test_post_shutdown_without_an_mcp_task():
     application = MagicMock()
     application.bot_data = {}
     await _post_shutdown(application)
+
+
+def test_retired_setting_message_names_the_replacement():
+    text = _retired_setting_message(name="claude_model")
+    assert text == "CLAUDE_MODEL has been renamed — use OPENCODE_MODEL instead."
+
+
+def test_retired_setting_message_explains_a_removal():
+    """A dropped setting has no replacement, so it must not read "use ... instead"."""
+    text = _retired_setting_message(name="tmux_session")
+    assert "use" not in text
+    assert "tmux keepalive is gone" in text
+    assert text.endswith("Delete the line.")
+
+
+def test_retired_setting_message_covers_every_retired_name():
+    from pyclaudius.main import _RETIRED_SETTINGS
+
+    for name in _RETIRED_SETTINGS:
+        text = _retired_setting_message(name=name)
+        assert name.upper() in text
+        assert "(removed" not in text

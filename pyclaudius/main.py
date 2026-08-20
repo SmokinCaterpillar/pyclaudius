@@ -148,13 +148,28 @@ async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> 
 # Settings that existed before the move to opencode. They are rejected as
 # unknown input, so an un-migrated .env fails with a pydantic traceback rather
 # than anything actionable — hence the explicit hint below.
-_RETIRED_SETTINGS: dict[str, str] = {
+# Retired setting -> its replacement, or None when the feature is simply gone.
+_RETIRED_SETTINGS: dict[str, str | None] = {
     "claude_path": "OPENCODE_PATH",
     "claude_timeout": "OPENCODE_TIMEOUT",
     "claude_model": "OPENCODE_MODEL",
-    "claude_effort": "(removed — opencode has no validated --variant)",
-    "tmux_session": "(removed — the tmux keepalive is gone)",
+    "claude_effort": None,
+    "tmux_session": None,
 }
+
+_REMOVED_REASON: dict[str, str] = {
+    "claude_effort": "opencode accepts any --variant without validating it",
+    "tmux_session": "the tmux keepalive is gone",
+}
+
+
+def _retired_setting_message(*, name: str) -> str:
+    """Explain one retired setting: renamed to something, or dropped outright."""
+    replacement = _RETIRED_SETTINGS[name]
+    if replacement is not None:
+        return f"{name.upper()} has been renamed — use {replacement} instead."
+    reason = _REMOVED_REASON.get(name, "the feature was removed")
+    return f"{name.upper()} is no longer supported — {reason}. Delete the line."
 
 
 def _load_settings() -> Settings:
@@ -171,10 +186,7 @@ def _load_settings() -> Settings:
         if not retired:
             raise
         for name in retired:
-            logger.error(
-                f"{name.upper()} is no longer supported — use"
-                f" {_RETIRED_SETTINGS[name]} instead."
-            )
+            logger.error(_retired_setting_message(name=name))
         logger.error("Remove the retired entries from .env and restart.")
         sys.exit(1)
 
