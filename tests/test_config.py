@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 from pydantic_settings import SettingsConfigDict
 
-from pyclaudius.config import Settings, ensure_dirs
+from pyclaudius.config import Settings, ensure_dirs, run_timeout
 
 
 def test_settings_defaults(monkeypatch):
@@ -13,7 +13,7 @@ def test_settings_defaults(monkeypatch):
     s = Settings()
     assert s.telegram_bot_token == "test-token"
     assert s.telegram_user_id == "12345"
-    assert s.claude_path == "claude"
+    assert s.opencode_path == "opencode"
     assert s.relay_dir == Path.home() / ".pyclaudius-relay"
 
 
@@ -24,11 +24,12 @@ def test_settings_derived_paths(tmp_path, monkeypatch):
     monkeypatch.setenv("RELAY_DIR", str(relay))
     s = Settings()
     assert s.temp_dir == relay / "temp"
-    assert s.uploads_dir == relay / "claude-work" / "uploads"
+    assert s.uploads_dir == relay / "work" / "uploads"
     assert s.session_file == relay / "session.json"
     assert s.lock_file == relay / "bot.lock"
     assert s.backlog_file == relay / "backlog.json"
-    assert s.claude_work_dir == relay / "claude-work"
+    assert s.opencode_work_dir == relay / "work"
+    assert s.opencode_config_file == relay / "opencode.json"
 
 
 def test_settings_missing_required_vars(monkeypatch):
@@ -47,7 +48,7 @@ def test_ensure_dirs_creates_directories(tmp_path, monkeypatch):
     ensure_dirs(settings=s)
     assert s.temp_dir.is_dir()
     assert s.uploads_dir.is_dir()
-    assert s.claude_work_dir.is_dir()
+    assert s.opencode_work_dir.is_dir()
 
 
 def test_settings_allowed_tools_default(monkeypatch):
@@ -92,66 +93,121 @@ def test_settings_timezone_file(tmp_path, monkeypatch):
     assert s.timezone_file == relay / "timezone.json"
 
 
-def test_settings_claude_timeout_default(monkeypatch):
+def test_settings_opencode_timeout_default(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
     monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
     s = Settings()
-    assert s.claude_timeout == 300
+    assert s.opencode_timeout == 300
 
 
-def test_settings_claude_timeout_from_env(monkeypatch):
+def test_settings_opencode_timeout_from_env(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
     monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
-    monkeypatch.setenv("CLAUDE_TIMEOUT", "60")
+    monkeypatch.setenv("OPENCODE_TIMEOUT", "60")
     s = Settings()
-    assert s.claude_timeout == 60
+    assert s.opencode_timeout == 60
 
 
-def test_settings_claude_model_default_none(monkeypatch):
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
-    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
-    monkeypatch.delenv("CLAUDE_MODEL", raising=False)
-    s = Settings()
-    assert s.claude_model is None
-
-
-def test_settings_claude_model_from_env(monkeypatch):
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
-    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
-    monkeypatch.setenv("CLAUDE_MODEL", "claude-sonnet-4-6")
-    s = Settings()
-    assert s.claude_model == "claude-sonnet-4-6"
-
-
-def test_settings_claude_effort_default_none(monkeypatch):
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
-    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
-    monkeypatch.delenv("CLAUDE_EFFORT", raising=False)
-    s = Settings()
-    assert s.claude_effort is None
-
-
-def test_settings_claude_effort_from_env(monkeypatch):
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
-    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
-    monkeypatch.setenv("CLAUDE_EFFORT", "high")
-    s = Settings()
-    assert s.claude_effort == "high"
-
-
-def test_settings_tmux_session_default_none(monkeypatch):
+def test_settings_opencode_scheduled_timeout_default(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
     monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
     s = Settings()
-    assert s.tmux_session is None
+    assert s.opencode_scheduled_timeout == 600
 
 
-def test_settings_tmux_session_from_env(monkeypatch):
+def test_settings_opencode_scheduled_timeout_from_env(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
     monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
-    monkeypatch.setenv("TMUX_SESSION", "claude")
+    monkeypatch.setenv("OPENCODE_SCHEDULED_TIMEOUT", "1200")
     s = Settings()
-    assert s.tmux_session == "claude"
+    assert s.opencode_scheduled_timeout == 1200
+
+
+def test_run_timeout_uses_scheduled_budget(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    s = Settings()
+    assert run_timeout(settings=s, is_scheduled=True) == s.opencode_scheduled_timeout
+
+
+def test_run_timeout_uses_interactive_budget(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    s = Settings()
+    assert run_timeout(settings=s, is_scheduled=False) == s.opencode_timeout
+
+
+def test_settings_opencode_model_default(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    monkeypatch.delenv("OPENCODE_MODEL", raising=False)
+    s = Settings()
+    assert s.opencode_model == "tensorx/moonshotai/kimi-k3"
+
+
+def test_settings_opencode_model_from_env(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    monkeypatch.setenv("OPENCODE_MODEL", "tensorx/z-ai/glm-5")
+    s = Settings()
+    assert s.opencode_model == "tensorx/z-ai/glm-5"
+
+
+def test_settings_splits_provider_and_model(monkeypatch):
+    """The summarize endpoint needs them separately, and the model half has slashes."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "1")
+    monkeypatch.setenv("OPENCODE_MODEL", "tensorx/moonshotai/kimi-k3")
+    s = Settings()
+    assert s.provider_id == "tensorx"
+    assert s.model_id == "moonshotai/kimi-k3"
+
+
+def test_settings_model_without_provider(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "1")
+    monkeypatch.setenv("OPENCODE_MODEL", "bare-model")
+    s = Settings()
+    assert s.provider_id == "bare-model"
+    assert s.model_id == ""
+
+
+def test_settings_api_key_default_empty(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    monkeypatch.delenv("TENSORX_API_KEY", raising=False)
+    s = Settings()
+    assert s.tensorx_api_key == ""
+
+
+def test_settings_api_key_from_env(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    monkeypatch.setenv("TENSORX_API_KEY", "sk-abc")
+    s = Settings()
+    assert s.tensorx_api_key == "sk-abc"
+
+
+def test_settings_str_masks_api_key(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "1")
+    monkeypatch.setenv("TENSORX_API_KEY", "sk-super-secret")
+    s = Settings()
+    assert "sk-super-secret" not in str(s)
+
+
+def test_settings_context_limit_default(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "1")
+    s = Settings()
+    assert s.opencode_context_limit == 1_048_576
+
+
+def test_settings_auto_approve_default_false(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "1")
+    s = Settings()
+    assert s.opencode_auto_approve is False
 
 
 def test_ensure_dirs_idempotent(tmp_path, monkeypatch):

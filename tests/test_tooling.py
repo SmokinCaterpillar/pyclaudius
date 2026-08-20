@@ -2,14 +2,36 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from pyclaudius.opencode_events import OpencodeResult
 from pyclaudius.tooling import (
     authorized,
     check_authorized,
+    is_api_error,
     is_auth_error,
     is_empty_response,
-    is_session_limit_error,
-    is_usage_credits_error,
+    is_rate_limit_error,
 )
+
+
+def _result(
+    *,
+    error_name: str | None = None,
+    status_code: int | None = None,
+    is_retryable: bool | None = None,
+    text: str = "",
+) -> OpencodeResult:
+    """Build the parsed result of one run, with only the fields under test set."""
+    return OpencodeResult(
+        text=text,
+        session_id="ses_x",
+        error_name=error_name,
+        error_message=None,
+        status_code=status_code,
+        is_retryable=is_retryable,
+        finished=True,
+        tokens=None,
+        cost=None,
+    )
 
 
 def test_check_authorized_match():
@@ -101,75 +123,58 @@ async def test_authorized_decorator_preserves_function_name():
     assert my_handler.__name__ == "my_handler"
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        'Error: {"type":"error","error":{"type":"authentication_error"}}',
-        "OAuth token has expired. Please re-authenticate.",
-        "API Error: 401 Unauthorized",
-    ],
-)
-def test_is_auth_error_matches(text: str):
-    assert is_auth_error(response=text) is True
+@pytest.mark.parametrize("status", [401, 403])
+def test_is_auth_error_matches_status(status: int):
+    """A missing or wrong TENSORX_API_KEY surfaces as an HTTP status, not prose."""
+    assert (
+        is_auth_error(result=_result(error_name="APIError", status_code=status)) is True
+    )
+
+
+def test_is_auth_error_matches_error_name():
+    assert is_auth_error(result=_result(error_name="ProviderAuthError")) is True
+
+
+@pytest.mark.parametrize("status", [None, 429, 500, 400])
+def test_is_auth_error_no_match(status):
+    assert (
+        is_auth_error(result=_result(error_name="APIError", status_code=status))
+        is False
+    )
+
+
+def test_is_auth_error_no_match_on_success():
+    assert is_auth_error(result=_result(text="Hello")) is False
+
+
+def test_is_rate_limit_error_matches_status():
+    assert (
+        is_rate_limit_error(result=_result(error_name="APIError", status_code=429))
+        is True
+    )
 
 
 @pytest.mark.parametrize(
-    "text",
-    [
-        "Hello from Claude",
-        "Error: something went wrong",
-        "API Error: 500 Internal Server Error",
-    ],
+    "name", ["RateLimitError", "rate_limit", "rate-limit", "Rate Limit Exceeded"]
 )
-def test_is_auth_error_no_match(text: str):
-    assert is_auth_error(response=text) is False
+def test_is_rate_limit_error_matches_error_name(name: str):
+    assert is_rate_limit_error(result=_result(error_name=name)) is True
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        "You've hit your session limit · resets 5pm (UTC)",
-        "You've hit your session limit",
-    ],
-)
-def test_is_session_limit_error_matches(text: str):
-    assert is_session_limit_error(response=text) is True
+@pytest.mark.parametrize("status", [None, 401, 500])
+def test_is_rate_limit_error_no_match(status):
+    assert (
+        is_rate_limit_error(result=_result(error_name="APIError", status_code=status))
+        is False
+    )
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        "Hello from Claude",
-        "Error: something went wrong",
-        "API Error: 429 rate limit exceeded",
-    ],
-)
-def test_is_session_limit_error_no_match(text: str):
-    assert is_session_limit_error(response=text) is False
+def test_is_api_error_matches_any_error_event():
+    assert is_api_error(result=_result(error_name="APIError", status_code=500)) is True
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        "API Error: Usage credits required for 1M context · turn on usage credits "
-        "at claude.ai/settings/usage, or use --model to switch to standard context",
-        "Usage credits required for 1M context",
-    ],
-)
-def test_is_usage_credits_error_matches(text: str):
-    assert is_usage_credits_error(response=text) is True
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        "Hello from Claude",
-        "Error: something went wrong",
-        "You've hit your session limit · resets 5pm (UTC)",
-    ],
-)
-def test_is_usage_credits_error_no_match(text: str):
-    assert is_usage_credits_error(response=text) is False
+def test_is_api_error_no_match_on_success():
+    assert is_api_error(result=_result(text="Hello")) is False
 
 
 @pytest.mark.parametrize("text", ["", "   ", "\n\t  \n"])
@@ -177,13 +182,6 @@ def test_is_empty_response_matches(text: str):
     assert is_empty_response(response=text) is True
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        "Hello",
-        "[SILENT]",
-        "Error: No conversation found with session ID: abc",
-    ],
-)
+@pytest.mark.parametrize("text", ["Hello", "[SILENT]", "Error: Session not found"])
 def test_is_empty_response_no_match(text: str):
     assert is_empty_response(response=text) is False

@@ -1,3 +1,52 @@
+# [0.13.0]
+
+**Breaking: the agent is now [opencode](https://opencode.ai) with TensorX as the model
+vendor. The Claude CLI is no longer used.**
+
+Migration:
+
+* Install opencode (`curl -fsSL https://opencode.ai/install | bash`) and set
+  `TENSORX_API_KEY` in `.env`. The bot refuses to start without it.
+* When running under systemd, create opencode's state directories first —
+  `~/.local/{share,state}/opencode`, `~/.config/opencode`, `~/.cache/opencode` — and grant
+  them in `ReadWritePaths`, along with `~/.opencode` itself — that directory is an npm
+  workspace where opencode installs provider SDKs at runtime, not merely the binary.
+  Under `ProtectHome=read-only` opencode cannot write any of them and fails with `EROFS`. Also delete the old `BindPaths=/tmp/tmux-<uid>` line: with the tmux
+  keepalive gone that directory no longer exists, and a bind mount with a missing source
+  fails the whole unit with `226/NAMESPACE`.
+* Rename settings: `CLAUDE_PATH` → `OPENCODE_PATH`, `CLAUDE_TIMEOUT` → `OPENCODE_TIMEOUT`,
+  `CLAUDE_MODEL` → `OPENCODE_MODEL` (now `provider/model`, default
+  `tensorx/moonshotai/kimi-k3`). `CLAUDE_EFFORT` and `TMUX_SESSION` are gone.
+* `ALLOWED_TOOLS` now takes lowercase opencode tool ids (`["webfetch"]`, not
+  `["WebFetch"]`).
+* The working directory moved from `~/.pyclaudius-relay/claude-work` to
+  `~/.pyclaudius-relay/work` — move it by hand to keep uploads and emails:
+  `mv ~/.pyclaudius-relay/claude-work ~/.pyclaudius-relay/work`
+* Any stored session id is dropped on first start (opencode session ids look like
+  `ses_...`), so the next message starts a fresh conversation.
+
+Changes:
+
+* Tool permissions, compaction policy and the MCP endpoint are now delivered through a
+  generated `~/.pyclaudius-relay/opencode.json` (mode 0600) instead of CLI flags. The
+  `claude mcp add/remove` shell-outs at startup/shutdown are gone.
+* MCP tools are addressed as `pyclaudius_<tool>` rather than `mcp__pyclaudius__*`, and are
+  enumerated explicitly in the permission map (a test pins the list to the running server).
+* Provider failures are classified from structured HTTP status codes instead of matching
+  English error text; the backlog retries only what the provider marks retryable.
+* `/clear` no longer spawns a subprocess — it just stops resuming the session.
+* `/compact` drives a short-lived `opencode serve` and its `/session/{id}/summarize`
+  endpoint, since `opencode run` has no compact command.
+* `/context` is answered locally from the last run's token usage and reports cost too.
+* Photos and documents are attached with `opencode run --file` instead of being named by
+  path in the prompt, so the model receives them directly.
+* An un-migrated `.env` (still carrying `CLAUDE_*`/`TMUX_SESSION`) now exits with a message
+  naming the replacement setting instead of a pydantic traceback.
+* Scheduled jobs run under their own timeout, `OPENCODE_SCHEDULED_TIMEOUT` (default 600s),
+  instead of sharing the 300s interactive `OPENCODE_TIMEOUT`.
+* Removed the tmux keepalive (an artefact of Claude subscription OAuth expiry) and the
+  1M-context usage-credits handling.
+
 # [0.12.0]
 
 * Allowing to pin the models and effort

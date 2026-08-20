@@ -16,7 +16,8 @@ RestartSec=10
 
 # Environment
 Environment=HOME=/home/YOUR_USERNAME
-Environment=PATH=/home/YOUR_USERNAME/.local/bin:/usr/local/bin:/usr/bin:/bin
+# opencode's installer puts the binary in ~/.opencode/bin
+Environment=PATH=/home/YOUR_USERNAME/.opencode/bin:/home/YOUR_USERNAME/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 # Logging
 StandardOutput=journal
@@ -27,9 +28,17 @@ SyslogIdentifier=pyclaudius
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/YOUR_USERNAME/.pyclaudius-relay /home/YOUR_USERNAME/.claude /home/YOUR_USERNAME/.local/share/claude
-# UPDATE THIS if using TMUX_SESSION: Replace 1000 with your UID (check with 'id -u')
-BindPaths=/tmp/tmux-1000:/tmp/tmux-1000
+# opencode needs its own state dirs writable: sessions live in
+# ~/.local/share/opencode, so missing these silently breaks session continuity
+# under ProtectHome=read-only.
+# opencode writes in five places under $HOME and cannot create any of them under
+# ProtectHome=read-only, so all five are granted. Note ~/.opencode is not just
+# the binary: it is an npm workspace where opencode installs provider SDKs
+# (@ai-sdk/openai-compatible for TensorX) at runtime, so it must be writable.
+# The '-' prefix means "ignore if absent" — without it systemd refuses to start
+# the unit at all when a directory is missing. Create them before first start
+# (see README).
+ReadWritePaths=/home/YOUR_USERNAME/.pyclaudius-relay -/home/YOUR_USERNAME/.opencode -/home/YOUR_USERNAME/.local/share/opencode -/home/YOUR_USERNAME/.local/state/opencode -/home/YOUR_USERNAME/.config/opencode -/home/YOUR_USERNAME/.cache/opencode
 PrivateTmp=true
 CapabilityBoundingSet=
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

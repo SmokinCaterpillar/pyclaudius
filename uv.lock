@@ -939,11 +939,12 @@ wheels = [
 
 [[package]]
 name = "pyclaudius"
-version = "0.12.0"
+version = "0.13.0"
 source = { editable = "." }
 dependencies = [
     { name = "apscheduler" },
     { name = "fastmcp" },
+    { name = "httpx" },
     { name = "pydantic-settings" },
     { name = "python-telegram-bot" },
 ]
@@ -960,6 +961,7 @@ dev = [
 requires-dist = [
     { name = "apscheduler", specifier = "==3.11.2" },
     { name = "fastmcp", specifier = "==2.14.5" },
+    { name = "httpx" },
     { name = "pydantic-settings", specifier = "==2.12.0" },
     { name = "python-telegram-bot", specifier = "==22.6" },
 ]

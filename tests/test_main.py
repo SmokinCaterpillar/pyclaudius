@@ -1,10 +1,18 @@
 import logging
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 from telegram import Update
 
-from pyclaudius.main import _error_handler, _on_mcp_task_done
+from pyclaudius.main import (
+    _error_handler,
+    _load_settings,
+    _on_mcp_task_done,
+    _post_shutdown,
+    _retired_setting_message,
+    configure_logging,
+)
 
 
 @pytest.mark.asyncio
@@ -66,3 +74,135 @@ def test_on_mcp_task_done_silent_on_cancellation(caplog):
     with caplog.at_level(logging.INFO, logger="pyclaudius.main"):
         _on_mcp_task_done(task)
     assert "cancelled" in caplog.text
+
+
+def _write_env(tmp_path, monkeypatch, body: str) -> None:
+    """Point Settings at a throwaway .env with no interfering process env."""
+    for name in (
+        "TELEGRAM_BOT_TOKEN",
+        "TELEGRAM_USER_ID",
+        "TENSORX_API_KEY",
+        "CLAUDE_MODEL",
+        "CLAUDE_EFFORT",
+        "CLAUDE_PATH",
+        "CLAUDE_TIMEOUT",
+        "TMUX_SESSION",
+        "RELAY_DIR",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    (tmp_path / ".env").write_text(body)
+    monkeypatch.chdir(tmp_path)
+
+
+def test_load_settings_reads_a_migrated_env(tmp_path, monkeypatch):
+    _write_env(
+        tmp_path,
+        monkeypatch,
+        "TELEGRAM_BOT_TOKEN=t\nTELEGRAM_USER_ID=1\nTENSORX_API_KEY=k\n",
+    )
+    assert _load_settings().tensorx_api_key == "k"
+
+
+def test_load_settings_exits_on_retired_claude_vars(tmp_path, monkeypatch, caplog):
+    """An un-migrated .env must say what to change, not raise a pydantic traceback."""
+    _write_env(
+        tmp_path,
+        monkeypatch,
+        "TELEGRAM_BOT_TOKEN=t\nTELEGRAM_USER_ID=1\nTENSORX_API_KEY=k\n"
+        "CLAUDE_MODEL=claude-sonnet-4-6\nTMUX_SESSION=claude\n",
+    )
+    with caplog.at_level(logging.ERROR), pytest.raises(SystemExit) as exc:
+        _load_settings()
+    assert exc.value.code == 1
+    assert "CLAUDE_MODEL has been renamed" in caplog.text
+    assert "OPENCODE_MODEL" in caplog.text
+    assert "TMUX_SESSION is no longer supported" in caplog.text
+    # A dropped setting has no replacement to name — the old wording produced
+    # "use (removed — the tmux keepalive is gone) instead".
+    assert "use (removed" not in caplog.text
+
+
+def test_load_settings_reraises_other_validation_errors(tmp_path, monkeypatch):
+    """A genuinely unknown key is still a hard error — typos must not pass silently."""
+    _write_env(
+        tmp_path,
+        monkeypatch,
+        "TELEGRAM_BOT_TOKEN=t\nTELEGRAM_USER_ID=1\nTENSORX_API_KEY=k\n"
+        "OPENCODE_MODLE=typo\n",
+    )
+    with pytest.raises(ValidationError):
+        _load_settings()
+
+
+def test_configure_logging_silences_httpx():
+    """Request URLs are logged by httpx, and the token lives in the URL path."""
+    logging.getLogger("httpx").setLevel(logging.INFO)
+    configure_logging()
+    assert logging.getLogger("httpx").level == logging.WARNING
+
+
+async def test_post_shutdown_awaits_the_mcp_task():
+    """Cancelling without awaiting leaves uvicorn's tasks pending at loop close."""
+    import asyncio
+
+    async def never_ending():
+        await asyncio.sleep(3600)
+
+    task = asyncio.create_task(never_ending())
+    await asyncio.sleep(0)
+    application = MagicMock()
+    application.bot_data = {"mcp_task": task}
+
+    await _post_shutdown(application)
+
+    assert task.done()
+    assert task.cancelled()
+
+
+async def test_post_shutdown_survives_a_stuck_mcp_task():
+    """A server that refuses to unwind must not block the bot's shutdown."""
+    import asyncio
+
+    async def swallows_cancellation():
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            await asyncio.sleep(3600)
+
+    task = asyncio.create_task(swallows_cancellation())
+    await asyncio.sleep(0)
+    application = MagicMock()
+    application.bot_data = {"mcp_task": task}
+
+    with patch("pyclaudius.main.asyncio.wait_for", side_effect=TimeoutError):
+        await _post_shutdown(application)
+
+    task.cancel()
+
+
+async def test_post_shutdown_without_an_mcp_task():
+    application = MagicMock()
+    application.bot_data = {}
+    await _post_shutdown(application)
+
+
+def test_retired_setting_message_names_the_replacement():
+    text = _retired_setting_message(name="claude_model")
+    assert text == "CLAUDE_MODEL has been renamed — use OPENCODE_MODEL instead."
+
+
+def test_retired_setting_message_explains_a_removal():
+    """A dropped setting has no replacement, so it must not read "use ... instead"."""
+    text = _retired_setting_message(name="tmux_session")
+    assert "use" not in text
+    assert "tmux keepalive is gone" in text
+    assert text.endswith("Delete the line.")
+
+
+def test_retired_setting_message_covers_every_retired_name():
+    from pyclaudius.main import _RETIRED_SETTINGS
+
+    for name in _RETIRED_SETTINGS:
+        text = _retired_setting_message(name=name)
+        assert name.upper() in text
+        assert "(removed" not in text

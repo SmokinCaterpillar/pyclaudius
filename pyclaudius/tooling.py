@@ -5,7 +5,13 @@ from functools import wraps
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from pyclaudius.opencode_events import OpencodeResult
+
 logger = logging.getLogger(__name__)
+
+HTTP_UNAUTHORIZED = 401
+HTTP_FORBIDDEN = 403
+HTTP_TOO_MANY_REQUESTS = 429
 
 
 def check_authorized(user_id: int, *, allowed_user_id: str) -> bool:
@@ -33,35 +39,37 @@ def authorized(
     return wrapper
 
 
-_AUTH_ERROR_MARKERS: tuple[str, ...] = (
-    "authentication_error",
-    "OAuth token has expired",
-    "API Error: 401",
-)
+def is_auth_error(*, result: OpencodeResult) -> bool:
+    """Check whether an opencode run failed on provider authentication.
 
-
-def is_auth_error(*, response: str) -> bool:
-    """Check if a response contains authentication error indicators."""
-    return any(marker in response for marker in _AUTH_ERROR_MARKERS)
-
-
-def is_session_limit_error(*, response: str) -> bool:
-    """Check if a response indicates the Claude plan/session usage limit was hit."""
-    return "You've hit your session limit" in response
-
-
-def is_usage_credits_error(*, response: str) -> bool:
-    """Check if a response indicates 1M-context usage credits are required.
-
-    Claude subscription plans gate the 1M-token context window (the
-    default on models like Sonnet 4.6+) behind a separate "usage credits"
-    balance. This is a billing-account state, not something a retry fixes.
+    opencode reports provider failures as structured ``error`` events carrying
+    an HTTP status, so classification does not depend on the wording of any
+    error message. A missing or wrong ``TENSORX_API_KEY`` surfaces as 401.
     """
-    return "Usage credits required" in response
+    if result.status_code in (HTTP_UNAUTHORIZED, HTTP_FORBIDDEN):
+        return True
+    return "auth" in (result.error_name or "").lower()
+
+
+def _squash(name: str | None) -> str:
+    """Lowercase *name* with separators removed, for tolerant matching."""
+    return (name or "").lower().replace("_", "").replace("-", "").replace(" ", "")
+
+
+def is_rate_limit_error(*, result: OpencodeResult) -> bool:
+    """Check whether the provider rate-limited or refused on quota."""
+    if result.status_code == HTTP_TOO_MANY_REQUESTS:
+        return True
+    return "ratelimit" in _squash(result.error_name)
+
+
+def is_api_error(*, result: OpencodeResult) -> bool:
+    """Check whether the run produced any provider-side error event."""
+    return result.error_name is not None
 
 
 def is_empty_response(*, response: str) -> bool:
-    """Detect a silent ``claude -p`` failure: rc=0 with no output.
+    """Detect a silent failure: opencode exited cleanly with no text.
 
     Returns True for empty or whitespace-only strings. A deliberate
     ``[SILENT]`` reply is not empty and is not treated as a failure.

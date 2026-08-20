@@ -10,6 +10,39 @@ from pyclaudius.backlog import (
     save_backlog,
     with_backlog,
 )
+from pyclaudius.opencode_events import OpencodeResult
+
+
+def _result(
+    *,
+    error_name: str | None = None,
+    status_code: int | None = None,
+    is_retryable: bool | None = None,
+    text: str = "",
+) -> OpencodeResult:
+    return OpencodeResult(
+        text=text,
+        session_id="ses_x",
+        error_name=error_name,
+        error_message="detail",
+        status_code=status_code,
+        is_retryable=is_retryable,
+        finished=True,
+        tokens=None,
+        cost=None,
+    )
+
+
+def _bot_data(*, backlog_file, backlog=None) -> dict:
+    return {
+        "settings": MagicMock(backlog_enabled=True, backlog_file=backlog_file),
+        "backlog": [] if backlog is None else list(backlog),
+    }
+
+
+AUTH_401 = _result(error_name="APIError", status_code=401, is_retryable=False)
+RATE_429 = _result(error_name="APIError", status_code=429, is_retryable=False)
+SERVER_500 = _result(error_name="APIError", status_code=500, is_retryable=True)
 
 
 def test_load_backlog_empty(tmp_path):
@@ -70,370 +103,255 @@ def test_format_backlog_list_items():
 
 @pytest.mark.asyncio
 async def test_with_backlog_normal_response():
-    """No auth error — response passes through unchanged."""
-
     @with_backlog
-    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
-        return "Hello from Claude", "sess-1"
+    async def fake_run(*, prompt: str, run_info: dict) -> tuple[str, str | None]:
+        run_info["result"] = _result(text="Hello")
+        return "Hello", "ses_1"
 
-    bot_data = {
-        "settings": MagicMock(backlog_enabled=True, backlog_file="/tmp/bl.json"),
-        "backlog": [],
-    }
-    result, session_id = await fake_claude(
-        prompt="hi", bot_data=bot_data, user_message="hi"
+    bot_data = _bot_data(backlog_file="/tmp/bl.json")
+    result, session_id = await fake_run(
+        prompt="hi", run_info={}, bot_data=bot_data, user_message="hi"
     )
-    assert result == "Hello from Claude"
-    assert session_id == "sess-1"
+    assert result == "Hello"
+    assert session_id == "ses_1"
     assert bot_data["backlog"] == []
 
 
 @pytest.mark.asyncio
 async def test_with_backlog_auth_error_saves_prompt(tmp_path):
-    """Auth error detected — item added to backlog and notification returned."""
+    """A 401 never self-heals, so it goes straight to the backlog without a retry."""
+    calls = 0
 
     @with_backlog
-    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
-        return "authentication_error", "sess-1"
+    async def fake_run(*, prompt: str, run_info: dict) -> tuple[str, str | None]:
+        nonlocal calls
+        calls += 1
+        run_info["result"] = AUTH_401
+        return "Error: APIError (401): detail", None
 
     backlog_file = tmp_path / "backlog.json"
-    bot_data = {
-        "settings": MagicMock(
-            backlog_enabled=True, backlog_file=backlog_file, tmux_session=None
-        ),
-        "backlog": [],
-    }
-    result, session_id = await fake_claude(
-        prompt="hi", bot_data=bot_data, user_message="original question"
+    bot_data = _bot_data(backlog_file=backlog_file)
+    result, _ = await fake_run(
+        prompt="hi", run_info={}, bot_data=bot_data, user_message="my question"
     )
+    assert calls == 1
     assert "Authentication error" in result
-    assert "1 pending" in result
-    assert session_id is None
-    assert len(bot_data["backlog"]) == 1
-    assert bot_data["backlog"][0]["prompt"] == "original question"
-
-    # Check it was persisted to disk
-    saved = json.loads(backlog_file.read_text())
-    assert len(saved) == 1
-    assert saved[0]["prompt"] == "original question"
+    assert "TENSORX_API_KEY" in result
+    assert json.loads(backlog_file.read_text())[0]["prompt"] == "my question"
 
 
 @pytest.mark.asyncio
-async def test_with_backlog_auth_error_disabled():
-    """backlog_enabled=False — auth error passes through unchanged."""
+async def test_with_backlog_rate_limit_saves_prompt(tmp_path):
+    @with_backlog
+    async def fake_run(*, prompt: str, run_info: dict) -> tuple[str, str | None]:
+        run_info["result"] = RATE_429
+        return "Error: APIError (429): detail", None
+
+    backlog_file = tmp_path / "backlog.json"
+    bot_data = _bot_data(backlog_file=backlog_file)
+    result, _ = await fake_run(
+        prompt="hi", run_info={}, bot_data=bot_data, user_message="q"
+    )
+    assert "rate limit" in result.lower()
+    assert len(bot_data["backlog"]) == 1
+
+
+@pytest.mark.asyncio
+@patch("pyclaudius.backlog.asyncio.sleep", new_callable=AsyncMock)
+async def test_with_backlog_never_retries_auth_even_if_marked_retryable(
+    mock_sleep: AsyncMock, tmp_path
+):
+    """A bad key cannot self-heal, whatever the provider claims about retrying."""
+    calls = 0
 
     @with_backlog
-    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
-        return "authentication_error", "sess-1"
+    async def fake_run(*, prompt: str, run_info: dict) -> tuple[str, str | None]:
+        nonlocal calls
+        calls += 1
+        run_info["result"] = _result(
+            error_name="APIError", status_code=401, is_retryable=True
+        )
+        return "Error: APIError (401): detail", None
+
+    bot_data = _bot_data(backlog_file=tmp_path / "backlog.json")
+    result, _ = await fake_run(
+        prompt="hi", run_info={}, bot_data=bot_data, user_message="q"
+    )
+    assert calls == 1
+    mock_sleep.assert_not_awaited()
+    assert "Authentication error" in result
+
+
+@pytest.mark.asyncio
+@patch("pyclaudius.backlog.asyncio.sleep", new_callable=AsyncMock)
+async def test_with_backlog_retries_when_provider_says_retryable(mock_sleep: AsyncMock):
+    """The provider's own isRetryable flag decides — trust it for one retry."""
+    calls = 0
+
+    @with_backlog
+    async def fake_run(*, prompt: str, run_info: dict) -> tuple[str, str | None]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            run_info["result"] = SERVER_500
+            return "Error: APIError (500): detail", None
+        run_info["result"] = _result(text="Hello")
+        return "Hello", "ses_2"
+
+    bot_data = _bot_data(backlog_file="/tmp/bl.json")
+    result, session_id = await fake_run(
+        prompt="hi", run_info={}, bot_data=bot_data, user_message="q"
+    )
+    assert calls == 2
+    assert result == "Hello"
+    assert session_id == "ses_2"
+    assert bot_data["backlog"] == []
+    mock_sleep.assert_awaited_once_with(5)
+
+
+@pytest.mark.asyncio
+@patch("pyclaudius.backlog.asyncio.sleep", new_callable=AsyncMock)
+async def test_with_backlog_retry_failure_still_saves(mock_sleep: AsyncMock, tmp_path):
+    @with_backlog
+    async def fake_run(*, prompt: str, run_info: dict) -> tuple[str, str | None]:
+        run_info["result"] = SERVER_500
+        return "Error: APIError (500): detail", None
+
+    backlog_file = tmp_path / "backlog.json"
+    bot_data = _bot_data(backlog_file=backlog_file)
+    result, _ = await fake_run(
+        prompt="hi", run_info={}, bot_data=bot_data, user_message="q"
+    )
+    assert "Provider error" in result
+    assert len(bot_data["backlog"]) == 1
+
+
+@pytest.mark.asyncio
+@patch("pyclaudius.backlog.asyncio.sleep", new_callable=AsyncMock)
+async def test_with_backlog_empty_response_is_always_retried(mock_sleep: AsyncMock):
+    """An empty stream is the shape of opencode's dropped-event bug."""
+    calls = 0
+
+    @with_backlog
+    async def fake_run(*, prompt: str, run_info: dict) -> tuple[str, str | None]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            run_info["result"] = _result()
+            return "", None
+        run_info["result"] = _result(text="Hello")
+        return "Hello", "ses_2"
+
+    bot_data = _bot_data(backlog_file="/tmp/bl.json")
+    result, _ = await fake_run(
+        prompt="hi", run_info={}, bot_data=bot_data, user_message="q"
+    )
+    assert calls == 2
+    assert result == "Hello"
+
+
+@pytest.mark.asyncio
+@patch("pyclaudius.backlog.asyncio.sleep", new_callable=AsyncMock)
+async def test_with_backlog_no_retry_on_non_retryable_provider_error(
+    mock_sleep: AsyncMock, tmp_path
+):
+    calls = 0
+
+    @with_backlog
+    async def fake_run(*, prompt: str, run_info: dict) -> tuple[str, str | None]:
+        nonlocal calls
+        calls += 1
+        run_info["result"] = RATE_429
+        return "Error: APIError (429): detail", None
+
+    bot_data = _bot_data(backlog_file=tmp_path / "backlog.json")
+    await fake_run(prompt="hi", run_info={}, bot_data=bot_data, user_message="q")
+    assert calls == 1
+    mock_sleep.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_with_backlog_disabled():
+    @with_backlog
+    async def fake_run(*, prompt: str, run_info: dict) -> tuple[str, str | None]:
+        run_info["result"] = AUTH_401
+        return "Error: APIError (401): detail", None
 
     bot_data = {
-        "settings": MagicMock(backlog_enabled=False),
+        "settings": MagicMock(backlog_enabled=False, backlog_file="/tmp/bl.json"),
         "backlog": [],
     }
-    result, session_id = await fake_claude(
-        prompt="hi", bot_data=bot_data, user_message="original question"
+    result, _ = await fake_run(
+        prompt="hi", run_info={}, bot_data=bot_data, user_message="q"
     )
-    assert result == "authentication_error"
-    assert session_id == "sess-1"
+    assert result == "Error: APIError (401): detail"
     assert bot_data["backlog"] == []
 
 
 @pytest.mark.asyncio
 async def test_with_backlog_no_bot_data():
-    """No bot_data kwarg — response passes through unchanged."""
-
     @with_backlog
-    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
-        return "authentication_error", "sess-1"
+    async def fake_run(*, prompt: str, run_info: dict) -> tuple[str, str | None]:
+        run_info["result"] = AUTH_401
+        return "Error: APIError (401): detail", None
 
-    result, session_id = await fake_claude(prompt="hi")
-    assert result == "authentication_error"
-    assert session_id == "sess-1"
+    result, _ = await fake_run(prompt="hi", run_info={})
+    assert result == "Error: APIError (401): detail"
 
 
 @pytest.mark.asyncio
 async def test_with_backlog_preserves_function_name():
     @with_backlog
-    async def my_func(*, prompt: str) -> tuple[str, str | None]:
+    async def my_call(*, prompt: str) -> tuple[str, str | None]:
         return "ok", None
 
-    assert my_func.__name__ == "my_func"
+    assert my_call.__name__ == "my_call"
 
 
 @pytest.mark.asyncio
 async def test_with_backlog_empty_user_message_not_saved(tmp_path):
-    """Auth error with empty/blank user_message — skip saving to backlog."""
-
     @with_backlog
-    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
-        return "authentication_error", None
+    async def fake_run(*, prompt: str, run_info: dict) -> tuple[str, str | None]:
+        run_info["result"] = AUTH_401
+        return "Error: APIError (401): detail", None
 
-    backlog_file = tmp_path / "backlog.json"
-    bot_data = {
-        "settings": MagicMock(
-            backlog_enabled=True, backlog_file=backlog_file, tmux_session=None
-        ),
-        "backlog": [],
-    }
-
-    # None user_message
-    result, _ = await fake_claude(prompt="hi", bot_data=bot_data, user_message=None)
-    assert result == "authentication_error"
+    bot_data = _bot_data(backlog_file=tmp_path / "backlog.json")
+    result, _ = await fake_run(
+        prompt="hi", run_info={}, bot_data=bot_data, user_message="   "
+    )
     assert bot_data["backlog"] == []
-
-    # Empty string
-    result, _ = await fake_claude(prompt="hi", bot_data=bot_data, user_message="")
-    assert result == "authentication_error"
-    assert bot_data["backlog"] == []
-
-    # Blank string
-    result, _ = await fake_claude(prompt="hi", bot_data=bot_data, user_message="   ")
-    assert result == "authentication_error"
-    assert bot_data["backlog"] == []
+    assert result == "Error: APIError (401): detail"
 
 
 @pytest.mark.asyncio
 async def test_with_backlog_appends_to_existing(tmp_path):
-    """Multiple auth errors accumulate in the backlog."""
-
     @with_backlog
-    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
-        return "authentication_error", None
+    async def fake_run(*, prompt: str, run_info: dict) -> tuple[str, str | None]:
+        run_info["result"] = AUTH_401
+        return "Error: APIError (401): detail", None
 
     backlog_file = tmp_path / "backlog.json"
     existing: list[BacklogItem] = [
         {"prompt": "first", "created_at": "2026-01-01T00:00:00"}
     ]
-    bot_data = {
-        "settings": MagicMock(
-            backlog_enabled=True, backlog_file=backlog_file, tmux_session=None
-        ),
-        "backlog": list(existing),
-    }
-    result, _ = await fake_claude(prompt="hi", bot_data=bot_data, user_message="second")
+    bot_data = _bot_data(backlog_file=backlog_file, backlog=existing)
+    result, _ = await fake_run(
+        prompt="hi", run_info={}, bot_data=bot_data, user_message="second"
+    )
     assert "2 pending" in result
-    assert len(bot_data["backlog"]) == 2
     assert bot_data["backlog"][1]["prompt"] == "second"
 
 
 @pytest.mark.asyncio
-@patch("pyclaudius.backlog.asyncio.sleep", new_callable=AsyncMock)
-@patch("pyclaudius.backlog.send_tmux_keepalive", new_callable=AsyncMock)
-async def test_with_backlog_auth_error_retries_after_keepalive(
-    mock_keepalive: AsyncMock,
-    mock_sleep: AsyncMock,
-) -> None:
-    """Auth error + tmux session → keepalive + retry succeeds → no backlog save."""
-    call_count = 0
+async def test_with_backlog_without_run_info_falls_back_to_empty_check(tmp_path):
+    """Without a run_info dict only the empty-response check can fire."""
 
     @with_backlog
-    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            return "authentication_error", None
-        return "Hello from Claude", "sess-2"
+    async def fake_run(*, prompt: str) -> tuple[str, str | None]:
+        return "", None
 
-    bot_data = {
-        "settings": MagicMock(
-            backlog_enabled=True, backlog_file="/tmp/bl.json", tmux_session="claude0"
-        ),
-        "backlog": [],
-    }
-    result, session_id = await fake_claude(
-        prompt="hi", bot_data=bot_data, user_message="my question"
-    )
-    assert result == "Hello from Claude"
-    assert session_id == "sess-2"
-    assert bot_data["backlog"] == []
-    mock_keepalive.assert_awaited_once_with(session_name="claude0")
-    mock_sleep.assert_awaited_once_with(5)
-
-
-@pytest.mark.asyncio
-@patch("pyclaudius.backlog.asyncio.sleep", new_callable=AsyncMock)
-@patch("pyclaudius.backlog.send_tmux_keepalive", new_callable=AsyncMock)
-async def test_with_backlog_auth_error_retry_also_fails(
-    mock_keepalive: AsyncMock,
-    mock_sleep: AsyncMock,
-    tmp_path,
-) -> None:
-    """Auth error + tmux session → keepalive + retry also fails → saves to backlog."""
-
-    @with_backlog
-    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
-        return "authentication_error", None
-
-    backlog_file = tmp_path / "backlog.json"
-    bot_data = {
-        "settings": MagicMock(
-            backlog_enabled=True, backlog_file=backlog_file, tmux_session="claude0"
-        ),
-        "backlog": [],
-    }
-    result, session_id = await fake_claude(
-        prompt="hi", bot_data=bot_data, user_message="my question"
-    )
-    assert "Authentication error" in result
-    assert "1 pending" in result
-    assert session_id is None
+    bot_data = _bot_data(backlog_file=tmp_path / "backlog.json")
+    with patch("pyclaudius.backlog.asyncio.sleep", new_callable=AsyncMock):
+        result, _ = await fake_run(prompt="hi", bot_data=bot_data, user_message="q")
+    assert "no output" in result
     assert len(bot_data["backlog"]) == 1
-    assert bot_data["backlog"][0]["prompt"] == "my question"
-    mock_keepalive.assert_awaited_once_with(session_name="claude0")
-    mock_sleep.assert_awaited_once_with(5)
-
-
-@pytest.mark.asyncio
-async def test_with_backlog_session_limit_saves_prompt(tmp_path) -> None:
-    """Session limit hit — task was never executed, saved to backlog."""
-
-    @with_backlog
-    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
-        return "You've hit your session limit · resets 5pm (UTC)", None
-
-    backlog_file = tmp_path / "backlog.json"
-    bot_data = {
-        "settings": MagicMock(
-            backlog_enabled=True, backlog_file=backlog_file, tmux_session=None
-        ),
-        "backlog": [],
-    }
-    result, session_id = await fake_claude(
-        prompt="hi", bot_data=bot_data, user_message="do the thing"
-    )
-    assert "Session limit reached" in result
-    assert "1 pending" in result
-    assert "resets" in result
-    assert session_id is None
-    assert len(bot_data["backlog"]) == 1
-    assert bot_data["backlog"][0]["prompt"] == "do the thing"
-
-
-@pytest.mark.asyncio
-@patch("pyclaudius.backlog.asyncio.sleep", new_callable=AsyncMock)
-@patch("pyclaudius.backlog.send_tmux_keepalive", new_callable=AsyncMock)
-async def test_with_backlog_session_limit_skips_keepalive_retry(
-    mock_keepalive: AsyncMock,
-    mock_sleep: AsyncMock,
-    tmp_path,
-) -> None:
-    """Session limit + tmux session configured — no retry, straight to backlog.
-
-    Unlike auth errors, a keepalive can't fix a plan-wide usage cap.
-    """
-    call_count = 0
-
-    @with_backlog
-    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
-        nonlocal call_count
-        call_count += 1
-        return "You've hit your session limit · resets 5pm (UTC)", None
-
-    backlog_file = tmp_path / "backlog.json"
-    bot_data = {
-        "settings": MagicMock(
-            backlog_enabled=True, backlog_file=backlog_file, tmux_session="claude0"
-        ),
-        "backlog": [],
-    }
-    result, session_id = await fake_claude(
-        prompt="hi", bot_data=bot_data, user_message="do the thing"
-    )
-    assert "Session limit reached" in result
-    assert session_id is None
-    assert call_count == 1
-    mock_keepalive.assert_not_awaited()
-    mock_sleep.assert_not_awaited()
-    assert len(bot_data["backlog"]) == 1
-
-
-@pytest.mark.asyncio
-async def test_with_backlog_usage_credits_saves_prompt(tmp_path) -> None:
-    """1M-context usage-credits gate hit — task was never executed, backlogged."""
-
-    @with_backlog
-    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
-        return (
-            "API Error: Usage credits required for 1M context · turn on usage "
-            "credits at claude.ai/settings/usage, or use --model to switch to "
-            "standard context",
-            None,
-        )
-
-    backlog_file = tmp_path / "backlog.json"
-    bot_data = {
-        "settings": MagicMock(
-            backlog_enabled=True, backlog_file=backlog_file, tmux_session=None
-        ),
-        "backlog": [],
-    }
-    result, session_id = await fake_claude(
-        prompt="hi", bot_data=bot_data, user_message="do the thing"
-    )
-    assert "Usage credits required for 1M context" in result
-    assert "1 pending" in result
-    assert "CLAUDE_MODEL" in result
-    assert session_id is None
-    assert len(bot_data["backlog"]) == 1
-    assert bot_data["backlog"][0]["prompt"] == "do the thing"
-
-
-@pytest.mark.asyncio
-@patch("pyclaudius.backlog.asyncio.sleep", new_callable=AsyncMock)
-@patch("pyclaudius.backlog.send_tmux_keepalive", new_callable=AsyncMock)
-async def test_with_backlog_usage_credits_skips_keepalive_retry(
-    mock_keepalive: AsyncMock,
-    mock_sleep: AsyncMock,
-    tmp_path,
-) -> None:
-    """Usage-credits gate + tmux session configured — no retry, straight to backlog."""
-    call_count = 0
-
-    @with_backlog
-    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
-        nonlocal call_count
-        call_count += 1
-        return "API Error: Usage credits required for 1M context", None
-
-    backlog_file = tmp_path / "backlog.json"
-    bot_data = {
-        "settings": MagicMock(
-            backlog_enabled=True, backlog_file=backlog_file, tmux_session="claude0"
-        ),
-        "backlog": [],
-    }
-    result, session_id = await fake_claude(
-        prompt="hi", bot_data=bot_data, user_message="do the thing"
-    )
-    assert "Usage credits required for 1M context" in result
-    assert session_id is None
-    assert call_count == 1
-    mock_keepalive.assert_not_awaited()
-    mock_sleep.assert_not_awaited()
-    assert len(bot_data["backlog"]) == 1
-
-
-@pytest.mark.asyncio
-async def test_with_backlog_auth_error_no_tmux_session_no_retry(tmp_path) -> None:
-    """Auth error + no tmux session → no keepalive, goes straight to backlog."""
-    call_count = 0
-
-    @with_backlog
-    async def fake_claude(*, prompt: str) -> tuple[str, str | None]:
-        nonlocal call_count
-        call_count += 1
-        return "authentication_error", None
-
-    backlog_file = tmp_path / "backlog.json"
-    bot_data = {
-        "settings": MagicMock(
-            backlog_enabled=True, backlog_file=backlog_file, tmux_session=None
-        ),
-        "backlog": [],
-    }
-    result, session_id = await fake_claude(
-        prompt="hi", bot_data=bot_data, user_message="my question"
-    )
-    assert "Authentication error" in result
-    assert session_id is None
-    assert call_count == 1  # No retry attempt
