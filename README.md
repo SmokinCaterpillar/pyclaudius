@@ -364,6 +364,18 @@ mkdir -p ~/.local/share/opencode ~/.local/state/opencode ~/.config/opencode \
          ~/.cache/opencode ~/.pyclaudius-relay
 ```
 
+Then run opencode once so it populates `~/.opencode/node_modules` with the provider SDK
+before the first Telegram message needs it:
+
+```bash
+opencode models > /dev/null
+```
+
+`~/.opencode` has to stay writable: alongside the binary it is an npm workspace where
+opencode installs provider SDKs at runtime, and it writes a `.gitignore` there on
+startup. The generated config sets `autoupdate: false` so a writable install directory
+does not mean the binary can be swapped underneath a running daemon.
+
 ### 5. Create the .env file
 
 ```bash

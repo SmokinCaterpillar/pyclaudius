@@ -31,10 +31,14 @@ ProtectHome=read-only
 # opencode needs its own state dirs writable: sessions live in
 # ~/.local/share/opencode, so missing these silently breaks session continuity
 # under ProtectHome=read-only.
+# opencode writes in five places under $HOME and cannot create any of them under
+# ProtectHome=read-only, so all five are granted. Note ~/.opencode is not just
+# the binary: it is an npm workspace where opencode installs provider SDKs
+# (@ai-sdk/openai-compatible for TensorX) at runtime, so it must be writable.
 # The '-' prefix means "ignore if absent" — without it systemd refuses to start
 # the unit at all when a directory is missing. Create them before first start
-# (see README), otherwise opencode cannot write sessions under ProtectHome.
-ReadWritePaths=/home/YOUR_USERNAME/.pyclaudius-relay -/home/YOUR_USERNAME/.local/share/opencode -/home/YOUR_USERNAME/.local/state/opencode -/home/YOUR_USERNAME/.config/opencode -/home/YOUR_USERNAME/.cache/opencode
+# (see README).
+ReadWritePaths=/home/YOUR_USERNAME/.pyclaudius-relay -/home/YOUR_USERNAME/.opencode -/home/YOUR_USERNAME/.local/share/opencode -/home/YOUR_USERNAME/.local/state/opencode -/home/YOUR_USERNAME/.config/opencode -/home/YOUR_USERNAME/.cache/opencode
 PrivateTmp=true
 CapabilityBoundingSet=
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

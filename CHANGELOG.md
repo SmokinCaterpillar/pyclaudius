@@ -9,8 +9,9 @@ Migration:
   `TENSORX_API_KEY` in `.env`. The bot refuses to start without it.
 * When running under systemd, create opencode's state directories first —
   `~/.local/{share,state}/opencode`, `~/.config/opencode`, `~/.cache/opencode` — and grant
-  them in `ReadWritePaths`. Under `ProtectHome=read-only` opencode cannot create them and
-  fails with `EROFS`. Also delete the old `BindPaths=/tmp/tmux-<uid>` line: with the tmux
+  them in `ReadWritePaths`, along with `~/.opencode` itself — that directory is an npm
+  workspace where opencode installs provider SDKs at runtime, not merely the binary.
+  Under `ProtectHome=read-only` opencode cannot write any of them and fails with `EROFS`. Also delete the old `BindPaths=/tmp/tmux-<uid>` line: with the tmux
   keepalive gone that directory no longer exists, and a bind mount with a missing source
   fails the whole unit with `226/NAMESPACE`.
 * Rename settings: `CLAUDE_PATH` → `OPENCODE_PATH`, `CLAUDE_TIMEOUT` → `OPENCODE_TIMEOUT`,
