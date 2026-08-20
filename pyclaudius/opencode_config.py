@@ -81,6 +81,10 @@ def build_opencode_config(
     config: dict[str, Any] = {
         "$schema": "https://opencode.ai/config.json",
         "model": settings.opencode_model,
+        # The install directory is read-only under the systemd unit's
+        # ProtectHome, so a self-update attempt would fail — and a daemon should
+        # not replace its own binary mid-flight anyway.
+        "autoupdate": False,
         "compaction": {
             "auto": True,
             "prune": False,

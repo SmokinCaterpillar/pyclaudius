@@ -249,6 +249,8 @@ it carries that run's MCP port. It contains:
   of the 1M window".
 - `permission` — the tool allow/deny map (see [Allowed Tools](#allowed-tools)).
 - `mcp` — the pyclaudius MCP server on this run's port.
+- `autoupdate: false` — the install directory is read-only under the systemd unit's
+  `ProtectHome`, and a daemon should not swap its own binary underneath itself.
 
 Do not hand-edit it; your changes are overwritten on the next start. Use `.env` instead.
 
@@ -358,7 +360,8 @@ write access to them, and under `ProtectHome=read-only` opencode cannot create t
 itself:
 
 ```bash
-mkdir -p ~/.local/share/opencode ~/.config/opencode ~/.cache/opencode ~/.pyclaudius-relay
+mkdir -p ~/.local/share/opencode ~/.local/state/opencode ~/.config/opencode \
+         ~/.cache/opencode ~/.pyclaudius-relay
 ```
 
 ### 5. Create the .env file

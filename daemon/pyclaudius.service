@@ -34,7 +34,7 @@ ProtectHome=read-only
 # The '-' prefix means "ignore if absent" — without it systemd refuses to start
 # the unit at all when a directory is missing. Create them before first start
 # (see README), otherwise opencode cannot write sessions under ProtectHome.
-ReadWritePaths=/home/YOUR_USERNAME/.pyclaudius-relay -/home/YOUR_USERNAME/.local/share/opencode -/home/YOUR_USERNAME/.config/opencode -/home/YOUR_USERNAME/.cache/opencode
+ReadWritePaths=/home/YOUR_USERNAME/.pyclaudius-relay -/home/YOUR_USERNAME/.local/share/opencode -/home/YOUR_USERNAME/.local/state/opencode -/home/YOUR_USERNAME/.config/opencode -/home/YOUR_USERNAME/.cache/opencode
 PrivateTmp=true
 CapabilityBoundingSet=
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

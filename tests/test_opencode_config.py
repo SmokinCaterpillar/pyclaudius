@@ -106,6 +106,12 @@ def test_config_injects_mcp_port(settings):
     }
 
 
+def test_config_disables_autoupdate(settings):
+    """The install dir is read-only under systemd; a self-update would fail."""
+    config = build_opencode_config(settings=settings, mcp_port=1, mcp_tool_names=[])
+    assert config["autoupdate"] is False
+
+
 def test_config_declares_schema(settings):
     config = build_opencode_config(settings=settings, mcp_port=1, mcp_tool_names=[])
     assert config["$schema"] == "https://opencode.ai/config.json"
