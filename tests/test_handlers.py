@@ -52,6 +52,7 @@ def _make_context(
             backlog_enabled=backlog_enabled,
             backlog_file=tmp_path / "backlog.json",
             opencode_timeout=300,
+            opencode_scheduled_timeout=600,
             opencode_model=opencode_model,
             opencode_auto_approve=False,
             opencode_context_limit=opencode_context_limit,
@@ -490,6 +491,33 @@ async def test_handle_text_scheduled_without_silent_sends_reply(tmp_path):
         await handle_text(update, context)
         update.message.reply_text.assert_called_once_with("It's sunny today!")
         assert 43 not in context.bot_data.get("_scheduled_update_ids", set())
+
+
+@pytest.mark.asyncio
+async def test_handle_text_scheduled_uses_scheduled_timeout(tmp_path):
+    update = _make_update(text="check weather")
+    update.update_id = 44
+    context = _make_context(tmp_path, cron_enabled=True)
+    context.bot_data["_scheduled_update_ids"] = {44}
+    with patch(
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("done", None)
+        await handle_text(update, context)
+        assert mock_opencode.call_args.kwargs["timeout"] == 600
+
+
+@pytest.mark.asyncio
+async def test_handle_text_unscheduled_uses_interactive_timeout(tmp_path):
+    update = _make_update(text="hello")
+    update.update_id = 45
+    context = _make_context(tmp_path)
+    with patch(
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("hi", None)
+        await handle_text(update, context)
+        assert mock_opencode.call_args.kwargs["timeout"] == 300
 
 
 @pytest.mark.asyncio

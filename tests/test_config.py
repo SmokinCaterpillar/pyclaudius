@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 from pydantic_settings import SettingsConfigDict
 
-from pyclaudius.config import Settings, ensure_dirs
+from pyclaudius.config import Settings, ensure_dirs, run_timeout
 
 
 def test_settings_defaults(monkeypatch):
@@ -106,6 +106,35 @@ def test_settings_opencode_timeout_from_env(monkeypatch):
     monkeypatch.setenv("OPENCODE_TIMEOUT", "60")
     s = Settings()
     assert s.opencode_timeout == 60
+
+
+def test_settings_opencode_scheduled_timeout_default(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    s = Settings()
+    assert s.opencode_scheduled_timeout == 600
+
+
+def test_settings_opencode_scheduled_timeout_from_env(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    monkeypatch.setenv("OPENCODE_SCHEDULED_TIMEOUT", "1200")
+    s = Settings()
+    assert s.opencode_scheduled_timeout == 1200
+
+
+def test_run_timeout_uses_scheduled_budget(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    s = Settings()
+    assert run_timeout(settings=s, is_scheduled=True) == s.opencode_scheduled_timeout
+
+
+def test_run_timeout_uses_interactive_budget(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_USER_ID", "12345")
+    s = Settings()
+    assert run_timeout(settings=s, is_scheduled=False) == s.opencode_timeout
 
 
 def test_settings_opencode_model_default(monkeypatch):

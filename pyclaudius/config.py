@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     tensorx_api_key: str = ""
     opencode_model: str = "tensorx/moonshotai/kimi-k3"
     opencode_timeout: int = 300
+    opencode_scheduled_timeout: int = 600
     opencode_context_limit: int = 1_048_576
     opencode_auto_approve: bool = False
     relay_dir: Path = Path.home() / ".pyclaudius-relay"
@@ -94,6 +95,18 @@ class Settings(BaseSettings):
         """Model half of ``opencode_model`` (e.g. ``moonshotai/kimi-k3``)."""
         _, _, model = self.opencode_model.partition("/")
         return model
+
+
+def run_timeout(*, settings: Settings, is_scheduled: bool) -> int:
+    """Seconds to allow one opencode run.
+
+    Scheduled jobs run unattended and tend to be broader ("summarise today's
+    mail") than a chat turn the user is waiting on, so they get their own,
+    longer budget.
+    """
+    if is_scheduled:
+        return settings.opencode_scheduled_timeout
+    return settings.opencode_timeout
 
 
 def ensure_dirs(*, settings: Settings) -> None:

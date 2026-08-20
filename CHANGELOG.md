@@ -42,6 +42,8 @@ Changes:
   path in the prompt, so the model receives them directly.
 * An un-migrated `.env` (still carrying `CLAUDE_*`/`TMUX_SESSION`) now exits with a message
   naming the replacement setting instead of a pydantic traceback.
+* Scheduled jobs run under their own timeout, `OPENCODE_SCHEDULED_TIMEOUT` (default 600s),
+  instead of sharing the 300s interactive `OPENCODE_TIMEOUT`.
 * Removed the tmux keepalive (an artefact of Claude subscription OAuth expiry) and the
   1M-context usage-credits handling.
 

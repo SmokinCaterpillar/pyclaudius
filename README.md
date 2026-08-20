@@ -148,6 +148,14 @@ CRON_ENABLED=true
 
 Jobs are stored in `~/.pyclaudius-relay/cron.json` and survive restarts.
 
+Scheduled runs get their own, longer timeout than chat turns, since nobody is waiting on
+them and their prompts tend to be broader:
+
+```bash
+OPENCODE_SCHEDULED_TIMEOUT=600                      # optional, this is the default (10 min)
+OPENCODE_TIMEOUT=300                                # interactive chat turns
+```
+
 ### Silent responses
 
 When a scheduled job fires, the model is instructed to respond with `[SILENT]` if there is nothing noteworthy to report. This suppresses the Telegram notification, avoiding spam from routine checks.

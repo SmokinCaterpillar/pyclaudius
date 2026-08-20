@@ -10,7 +10,7 @@ from telegram.ext import ContextTypes
 
 from pyclaudius.backlog import BACKLOG_SAVED_MARKER, BacklogItem
 from pyclaudius.bot_data import BotData, SessionState
-from pyclaudius.config import Settings
+from pyclaudius.config import Settings, run_timeout
 from pyclaudius.cron.models import ScheduledJob
 from pyclaudius.memory import format_memory_section
 from pyclaudius.opencode import RunInfo, call_opencode
@@ -130,7 +130,7 @@ async def _opencode_round_trip(
         cwd=str(settings.opencode_work_dir),
         config_file=settings.opencode_config_file,
         auto_approve=settings.opencode_auto_approve,
-        timeout=settings.opencode_timeout,
+        timeout=run_timeout(settings=settings, is_scheduled=is_scheduled),
         run_info=run_info,
         bot_data=bot_data,
         user_message=user_message,
