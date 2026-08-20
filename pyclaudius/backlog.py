@@ -1,4 +1,4 @@
-"""Backlog storage and decorator for saving failed prompts on auth errors."""
+"""Backlog storage and decorator for saving failed prompts on recoverable errors."""
 
 from __future__ import annotations
 
@@ -10,12 +10,12 @@ from datetime import UTC, datetime
 from functools import wraps
 from typing import TYPE_CHECKING, TypedDict, cast
 
-from pyclaudius.keepalive import send_tmux_keepalive
+from pyclaudius.opencode_events import OpencodeResult
 from pyclaudius.tooling import (
+    is_api_error,
     is_auth_error,
     is_empty_response,
-    is_session_limit_error,
-    is_usage_credits_error,
+    is_rate_limit_error,
 )
 
 if TYPE_CHECKING:
@@ -27,37 +27,54 @@ logger = logging.getLogger(__name__)
 
 
 _AUTH_ERROR = "Authentication error"
-_EMPTY_RESPONSE = "Claude CLI returned no output"
-_SESSION_LIMIT = "Session limit reached"
-_USAGE_CREDITS = "Usage credits required for 1M context"
+_EMPTY_RESPONSE = "opencode returned no output"
+_RATE_LIMITED = "Provider rate limit reached"
+_API_ERROR = "Provider error"
 
 _BACKLOG_HINT: dict[str, str] = {
-    _AUTH_ERROR: "Re-authenticate with 'claude auth login', then /replaybacklog.",
+    _AUTH_ERROR: "Check TENSORX_API_KEY, then /replaybacklog.",
     _EMPTY_RESPONSE: "Try /replaybacklog later.",
-    _SESSION_LIMIT: "Try /replaybacklog after the limit resets.",
-    _USAGE_CREDITS: (
-        "Turn on usage credits at claude.ai/settings/usage, or set CLAUDE_MODEL to a "
-        "standard-context model (e.g. claude-sonnet-4-5), then /replaybacklog."
-    ),
+    _RATE_LIMITED: "Try /replaybacklog after the rate limit resets.",
+    _API_ERROR: "Try /replaybacklog once the provider recovers.",
 }
 
-# Failure modes where a tmux-keepalive retry can plausibly help. Session
-# limits and usage-credit gates are plan/billing states — retrying
-# immediately just re-hits the same wall.
-_RETRYABLE_FAILURES = frozenset({_AUTH_ERROR, _EMPTY_RESPONSE})
+# Present in every response where the message was re-queued. Callers looping
+# over the backlog watch for it so they stop instead of re-queueing everything.
+BACKLOG_SAVED_MARKER = "Message saved to backlog"
+
+# Seconds to wait before the single automatic retry.
+_RETRY_DELAY_SECONDS = 5
 
 
-def _classify_failure(*, response: str) -> str | None:
+def _classify_failure(
+    *, response: str, result: OpencodeResult | None = None
+) -> str | None:
     """Identify recoverable failure modes; returns None on success."""
-    if is_auth_error(response=response):
-        return _AUTH_ERROR
-    if is_session_limit_error(response=response):
-        return _SESSION_LIMIT
-    if is_usage_credits_error(response=response):
-        return _USAGE_CREDITS
+    if result is not None:
+        if is_auth_error(result=result):
+            return _AUTH_ERROR
+        if is_rate_limit_error(result=result):
+            return _RATE_LIMITED
+        if is_api_error(result=result):
+            return _API_ERROR
     if is_empty_response(response=response):
         return _EMPTY_RESPONSE
     return None
+
+
+def _is_retryable(*, failure: str, result: OpencodeResult | None) -> bool:
+    """Decide whether one immediate retry could plausibly succeed.
+
+    An empty response is the shape opencode's occasional dropped-event bug
+    takes, so it is always worth one retry. Otherwise the provider itself says
+    whether the failure is transient via ``isRetryable``; a bad API key never
+    self-heals.
+    """
+    if failure == _EMPTY_RESPONSE:
+        return True
+    if failure == _AUTH_ERROR:
+        return False
+    return bool(result is not None and result.is_retryable)
 
 
 class BacklogItem(TypedDict):
@@ -91,24 +108,30 @@ def format_backlog_list(*, items: list[BacklogItem]) -> str:
     return f"Pending backlog items ({len(items)}):\n\n" + "\n".join(lines)
 
 
+def _result_from_kwargs(kwargs: dict) -> OpencodeResult | None:
+    """Read the parsed result the wrapped call recorded in ``run_info``."""
+    run_info = kwargs.get("run_info")
+    if isinstance(run_info, dict):
+        result = run_info.get("result")
+        if isinstance(result, OpencodeResult):
+            return result
+    return None
+
+
 def with_backlog(
     func: Callable[..., Awaitable[tuple[str, str | None]]],
 ) -> Callable[..., Awaitable[tuple[str, str | None]]]:
     """Save the user's original message to a backlog on recoverable failures.
 
-    Four failure modes are treated as recoverable:
-    - Auth errors (markers in stdout, see :func:`is_auth_error`).
-    - Silent ``claude -p`` failures (rc=0 with no output).
-    - Hitting the Claude plan/session usage limit (see
-      :func:`is_session_limit_error`) — the task was never executed.
-    - Hitting the 1M-context usage-credits gate (see
-      :func:`is_usage_credits_error`) — the task was never executed.
+    Failure modes treated as recoverable:
+    - Provider authentication errors (HTTP 401/403).
+    - Provider rate limits (HTTP 429) — the task was never executed.
+    - Any other provider-side error event.
+    - An empty response, i.e. opencode exited without producing text.
 
-    For the first two, the wrapper attempts a tmux keepalive + retry first;
-    the session-limit and usage-credits cases skip the retry (they're
-    plan/billing states a retry can't fix) and go straight to the backlog.
-    In all cases, the user's original message is appended to the backlog
-    and a tailored error message is returned.
+    Transient failures get one immediate retry (see :func:`_is_retryable`);
+    otherwise, and if the retry also fails, the user's original message is
+    appended to the backlog and a tailored error message is returned.
     """
 
     @wraps(func)
@@ -125,22 +148,20 @@ def with_backlog(
         if not settings.backlog_enabled:
             return response, session_id
 
-        failure = _classify_failure(response=response)
+        result = _result_from_kwargs(kwargs)
+        failure = _classify_failure(response=response, result=result)
         if failure is None:
             return response, session_id
 
-        # Retry once via tmux keepalive before saving to backlog
-        if settings.tmux_session and failure in _RETRYABLE_FAILURES:
-            logger.info(
-                f"{failure} — sending tmux keepalive to {settings.tmux_session!r} and retrying"
-            )
-            await send_tmux_keepalive(session_name=settings.tmux_session)
-            await asyncio.sleep(5)
+        if _is_retryable(failure=failure, result=result):
+            logger.info(f"{failure} — retrying once in {_RETRY_DELAY_SECONDS}s")
+            await asyncio.sleep(_RETRY_DELAY_SECONDS)
             response, session_id = await func(**kwargs)
-            if _classify_failure(response=response) is None:
-                logger.info("Retry after keepalive succeeded")
+            retry_result = _result_from_kwargs(kwargs)
+            if _classify_failure(response=response, result=retry_result) is None:
+                logger.info("Retry succeeded")
                 return response, session_id
-            logger.warning("Retry after keepalive still failed — saving to backlog")
+            logger.warning("Retry still failed — saving to backlog")
 
         if not user_message or not str(user_message).strip():
             return response, session_id
@@ -159,7 +180,7 @@ def with_backlog(
         logger.warning(f"{failure} — saved message to backlog ({count} pending)")
         hint = _BACKLOG_HINT[failure]
         return (
-            f"{failure}. Message saved to backlog ({count} pending).\n{hint}",
+            f"{failure}. {BACKLOG_SAVED_MARKER} ({count} pending).\n{hint}",
             None,
         )
 

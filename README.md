@@ -1,6 +1,6 @@
 # pyclaudius
 
-A personal Telegram bot that relays messages to the Claude CLI as a subprocess, giving full tool/MCP access. Inspired by [claude-telegram-relay](https://github.com/godagoo/claude-telegram-relay).
+A personal Telegram bot that relays messages to the [opencode](https://opencode.ai) CLI as a subprocess, giving full tool/MCP access. Inspired by [claude-telegram-relay](https://github.com/godagoo/claude-telegram-relay).
 
 ## Setup
 
@@ -8,7 +8,8 @@ A personal Telegram bot that relays messages to the Claude CLI as a subprocess, 
 
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/)
-- [Claude CLI](https://docs.anthropic.com/en/docs/claude-cli) installed and authenticated (`claude` in PATH)
+- [opencode](https://opencode.ai) installed (`opencode` in PATH)
+- A [TensorX](https://docs.tensorx.ai/) API key
 - A Telegram bot token from [@BotFather](https://t.me/BotFather)
 - Your Telegram user ID from [@userinfobot](https://t.me/userinfobot)
 
@@ -39,12 +40,12 @@ uv run pyclaudius
 
 - `/help` — list all available commands
 - `/clear` — end the current session and start fresh
-- `/compact` — compact the conversation context to free up context window space
-- `/context` — show current context window usage
+- `/compact` — summarize the conversation to free up context window space (compaction is also automatic)
+- `/context` — show token usage and cost of the last exchange
 
 ## MCP Tools
 
-pyclaudius runs an in-process MCP server that gives Claude direct tool access. A FastMCP HTTP server starts alongside the bot on `127.0.0.1`, and at startup pyclaudius registers it with Claude CLI via `claude mcp add --transport http --scope project`. This lets Claude call tools mid-conversation, see results, and reason over them.
+pyclaudius runs an in-process MCP server that gives the model direct tool access. A FastMCP HTTP server starts alongside the bot on `127.0.0.1`, and its address is written into the generated opencode config (see [Generated opencode config](#generated-opencode-config)) so opencode connects to it on every run. This lets the model call tools mid-conversation, see results, and reason over them.
 
 Tools are registered conditionally based on feature flags (`MEMORY_ENABLED`, `CRON_ENABLED`, `EMAIL_ENABLED`, `BACKLOG_ENABLED`).
 
@@ -68,7 +69,7 @@ Tools are registered conditionally based on feature flags (`MEMORY_ENABLED`, `CR
 
 ### Adding your own tools
 
-You can extend Claude with custom MCP tools by writing a plain Python function and registering it in `pyclaudius/mcp_tools/server.py`.
+You can extend the model with custom MCP tools by writing a plain Python function and registering it in `pyclaudius/mcp_tools/server.py`.
 
 **1. Create a new module** in `pyclaudius/mcp_tools/` with your functions:
 
@@ -95,7 +96,7 @@ async def get_active_timezone() -> str:
     return timezone_tool.get_active_timezone(bot_data=bot_data)
 ```
 
-The `@mcp.tool()` decorator exposes the function to Claude via MCP. The docstring becomes the tool description that Claude sees. The `bot_data` dict is captured via closure from the enclosing `create_mcp_server()` function.
+The `@mcp.tool()` decorator exposes the function to the model via MCP. The docstring becomes the tool description the model sees. The `bot_data` dict is captured via closure from the enclosing `create_mcp_server()` function.
 
 You can also register tools conditionally based on feature flags:
 
@@ -106,11 +107,11 @@ if settings.some_feature_enabled:
         ...
 ```
 
-That's it. The tool is automatically discovered by Claude CLI, added to `--allowedTools` via the `mcp__pyclaudius__*` wildcard, and available in every conversation.
+That's it — with one caveat: add the function name to `_TOOLS_BY_FLAG` in the same module, so it lands in the generated config's `permission` map as `pyclaudius_<tool_name>` (opencode's namespacing). A test asserts the table matches the tools the server actually registers, so a forgotten entry fails the suite rather than silently denying the tool at runtime.
 
 ## Memory
 
-pyclaudius supports persistent memory across sessions. When enabled, Claude can remember and forget facts using MCP tools (`remember_fact`, `forget_memory`).
+pyclaudius supports persistent memory across sessions. When enabled, the model can remember and forget facts using MCP tools (`remember_fact`, `forget_memory`).
 
 You can also manage memory manually with Telegram commands:
 
@@ -129,7 +130,7 @@ Memories are stored in `~/.pyclaudius-relay/memory.json` and injected into every
 
 ## Scheduled Tasks (Cron)
 
-pyclaudius supports recurring and one-time scheduled tasks. When enabled, Claude can create and manage jobs using MCP tools (`add_cron_job`, `schedule_once`, `remove_cron_job`, `list_cron_jobs`).
+pyclaudius supports recurring and one-time scheduled tasks. When enabled, the model can create and manage jobs using MCP tools (`add_cron_job`, `schedule_once`, `remove_cron_job`, `list_cron_jobs`).
 
 You can also manage jobs with Telegram commands:
 
@@ -149,11 +150,11 @@ Jobs are stored in `~/.pyclaudius-relay/cron.json` and survive restarts.
 
 ### Silent responses
 
-When a scheduled job fires, Claude is instructed to respond with `[SILENT]` if there is nothing noteworthy to report. This suppresses the Telegram notification, avoiding spam from routine checks.
+When a scheduled job fires, the model is instructed to respond with `[SILENT]` if there is nothing noteworthy to report. This suppresses the Telegram notification, avoiding spam from routine checks.
 
 ## Email Integration
 
-pyclaudius can fetch emails from a dedicated IMAP account (e.g. a Gmail address that receives forwarded mail) and save them as markdown files in the Claude working directory. This lets Claude read and reason over your emails.
+pyclaudius can fetch emails from a dedicated IMAP account (e.g. a Gmail address that receives forwarded mail) and save them as markdown files in the opencode working directory. This lets the model read and reason over your emails.
 
 > **Warning — pyclaudius can permanently delete emails from the server.** The `/deleteallreadmail` command (and the `delete_read_mail` MCP tool) issues an IMAP `EXPUNGE` with no undo. For this reason, **the recommended setup is a dedicated Gmail account** that only receives forwarded copies of emails you care about. That way you can grant pyclaudius full access without risking your primary inbox.
 
@@ -164,7 +165,7 @@ pyclaudius can fetch emails from a dedicated IMAP account (e.g. a Gmail address 
 
 ### MCP tools
 
-When enabled, two MCP tools are also registered so Claude can fetch and clean mail autonomously:
+When enabled, two MCP tools are also registered so the model can fetch and clean mail autonomously:
 
 | Tool | Description |
 |------|-------------|
@@ -183,7 +184,7 @@ EMAIL_USER=your-llm-email@gmail.com
 EMAIL_PASSWORD=your-app-password
 ```
 
-For Gmail, use an [App Password](https://support.google.com/accounts/answer/185833) (not your regular password). Emails are saved to `~/.pyclaudius-relay/claude-work/emails/` as markdown files.
+For Gmail, use an [App Password](https://support.google.com/accounts/answer/185833) (not your regular password). Emails are saved to `~/.pyclaudius-relay/work/emails/` as markdown files.
 
 ### Gmail setup
 
@@ -206,7 +207,7 @@ EMAIL_PASSWORD=abcd efgh ijkl mnop   # the 16-char App Password (spaces optional
 
 ## Timezone
 
-Set your timezone so Claude sees the correct local time and scheduled jobs fire at the right local time:
+Set your timezone so the model sees the correct local time and scheduled jobs fire at the right local time:
 
 - `/timezone <city>` — set timezone with fuzzy matching (e.g. `/timezone Berlin`)
 - Affects prompt time display and cron/schedule job scheduling
@@ -214,32 +215,77 @@ Set your timezone so Claude sees the correct local time and scheduled jobs fire 
 
 The timezone is stored in `~/.pyclaudius-relay/timezone.json`.
 
-## Model & Effort
+## Model & Provider
 
-By default, pyclaudius passes no `--model`/`--effort` flags to the Claude CLI, so it uses whatever the CLI resolves as its default (from that host's `~/.claude/settings.json` or `ANTHROPIC_MODEL`). To pin a specific model or effort level regardless of the CLI's own defaults, set:
+pyclaudius drives opencode against [TensorX](https://docs.tensorx.ai/), which ships in
+opencode's [models.dev](https://models.dev) registry — so no provider block is needed.
+Setting the API key is enough to activate it:
 
 ```bash
-CLAUDE_MODEL=claude-sonnet-4-6   # optional, e.g. an alias like "opus"/"sonnet" or a full model ID
-CLAUDE_EFFORT=high               # optional: low, medium, high, xhigh, or max
+TENSORX_API_KEY=sk-...                              # required
+OPENCODE_MODEL=tensorx/moonshotai/kimi-k3           # optional, this is the default
 ```
 
-Leave either unset (or empty) to keep using the CLI's default.
+Any model TensorX serves works — run `opencode models | grep tensorx` for the list.
+Context limits, costs and capabilities come from the registry, so they do not need to be
+configured.
 
-**"Usage credits required for 1M context" error:** models like Sonnet 4.6+ default to a 1M-token context window, which on a Claude subscription plan requires a separate "usage credits" balance turned on at [claude.ai/settings/usage](https://claude.ai/settings/usage). To avoid this without changing billing, pin `CLAUDE_MODEL` to a model with a standard 200k context window instead, e.g. `claude-sonnet-4-5`.
+The key is passed to the subprocess in its environment and is deliberately **not** written
+into the generated config file. Everything else in the parent environment — including
+`TELEGRAM_BOT_TOKEN` — is stripped from the subprocess.
+
+Note there is no equivalent of the Claude CLI's `--effort`: `opencode run --variant`
+accepts any string without validating it, and Kimi K3's reasoning is a plain on/off
+toggle rather than an effort ladder, so pyclaudius does not expose it.
+
+## Generated opencode config
+
+On every start, pyclaudius writes `~/.pyclaudius-relay/opencode.json` (mode `0600`) and
+points the subprocess at it with `OPENCODE_CONFIG`. It is regenerated each time because
+it carries that run's MCP port. It contains:
+
+- `model` — from `OPENCODE_MODEL`.
+- `compaction` — automatic compaction with a 100k-token reserve, roughly "compact at 90%
+  of the 1M window".
+- `permission` — the tool allow/deny map (see [Allowed Tools](#allowed-tools)).
+- `mcp` — the pyclaudius MCP server on this run's port.
+
+Do not hand-edit it; your changes are overwritten on the next start. Use `.env` instead.
 
 ## Allowed Tools
 
-By default, Claude CLI in print mode (`-p`) does not have permission to use tools like `WebSearch` or `WebFetch`. To pre-approve tools, set the `ALLOWED_TOOLS` environment variable:
+opencode asks for confirmation before some tool calls, which would hang forever in a
+relay with no terminal attached. pyclaudius therefore generates a `permission` map that
+contains only `allow` and `deny` — never `ask`.
+
+Allowed by default: `read`, `edit`, `bash`, `glob`, `grep`, `list`, `todowrite` (note
+opencode has no separate `write` permission — writes fall under `edit`). Denied by
+default: `webfetch`, `websearch`, `external_directory`, `doom_loop`, `task`, `skill`,
+`question`. MCP tool names are added automatically.
+
+To allow additional tools:
 
 ```bash
-ALLOWED_TOOLS=["WebSearch","WebFetch"]
+ALLOWED_TOOLS=["webfetch","websearch"]
 ```
 
-MCP tool names are automatically added to the allowed tools list.
+As a blunt fallback there is `OPENCODE_AUTO_APPROVE=true`, which passes `--auto` and
+approves anything not explicitly denied. It is off by default: it would also approve
+tools that were never enumerated.
 
 ## Replay Backlog
 
-When Claude CLI returns an authentication error (expired token, 401), an empty/silent response, reports that you've hit your plan's session usage limit, or hits the 1M-context usage-credits gate (see [Model & Effort](#model--effort)), pyclaudius saves your original message to a persistent backlog and notifies you — since the task was never actually executed. After the underlying issue clears (re-authenticate, wait for the session limit to reset, or fix the model/billing config), you can replay the saved messages.
+When a run fails in a way that means the task was never executed, pyclaudius saves your
+original message to a persistent backlog and notifies you. opencode reports provider
+failures as structured events carrying an HTTP status, so the classification is exact:
+
+- **401/403** — bad or missing `TENSORX_API_KEY`. No retry; it cannot self-heal.
+- **429** — provider rate limit. No retry.
+- **any other provider error** — retried once if the provider marked it retryable.
+- **empty response** — always retried once, since this is the shape of an occasional
+  opencode bug where stream events are dropped.
+
+After the underlying issue clears, you can replay the saved messages.
 
 This feature is **enabled by default**. To disable it:
 
@@ -256,28 +302,14 @@ BACKLOG_ENABLED=false
 
 ### How it works
 
-1. You send a message to Claude
-2. Claude CLI returns an authentication error
+1. You send a message
+2. opencode returns a 401 from the provider
 3. pyclaudius saves your original message to `~/.pyclaudius-relay/backlog.json`
 4. You receive a notification with the pending count
-5. Re-authenticate: `claude auth login`
+5. Fix `TENSORX_API_KEY` in `.env` and restart
 6. Use `/replaybacklog` to resend all saved messages
 
 The backlog is also accessible via MCP tools (`list_backlog`, `clear_backlog`, `replay_one`, `replay_backlog`).
-
-## Tmux Keepalive
-
-Claude CLI auth expires roughly every 15 hours. If you run Claude Code in a tmux session, pyclaudius can periodically send it a "hello" to keep the auth alive.
-
-Set the tmux session name:
-
-```bash
-TMUX_SESSION=claude
-```
-
-When configured, an APScheduler job runs every 5 hours 10 minutes and executes `tmux send-keys -t <session> "hello" Enter`. This requires `tmux` to be installed and the named session to exist.
-
-**systemd note:** The service unit uses `PrivateTmp=true`, which isolates `/tmp`. To let the keepalive reach your tmux socket, the unit includes a `BindPaths=` directive that bind-mounts `/tmp/tmux-<UID>`. The default UID is `1000`; if yours differs, update the value in `daemon/pyclaudius.service` (check with `id -u`).
 
 ## Deploying on a server (Hetzner, etc.)
 
@@ -307,15 +339,26 @@ git clone <repo-url> ~/pyclaudius && cd ~/pyclaudius
 uv sync
 ```
 
-### 4. Install and authenticate the Claude CLI
+### 4. Install opencode
 
 ```bash
-# Install Claude CLI (as the pyclaudius user)
-npm install -g @anthropic-ai/claude-code
-# Or download the standalone binary
+# As the pyclaudius user
+curl -fsSL https://opencode.ai/install | bash
+# Installs to ~/.opencode/bin — make sure that is on PATH, or set
+# OPENCODE_PATH=/home/pyclaudius/.opencode/bin/opencode in .env
 
-# Authenticate
-claude auth login
+opencode --version
+```
+
+No `opencode auth login` step is needed: pyclaudius passes `TENSORX_API_KEY` from `.env`
+into the subprocess environment.
+
+Create opencode's state directories before running as a daemon — the systemd unit grants
+write access to them, and under `ProtectHome=read-only` opencode cannot create them
+itself:
+
+```bash
+mkdir -p ~/.local/share/opencode ~/.config/opencode ~/.cache/opencode ~/.pyclaudius-relay
 ```
 
 ### 5. Create the .env file

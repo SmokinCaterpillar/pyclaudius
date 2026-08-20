@@ -71,7 +71,7 @@ nssm install pyclaudius
 nssm install pyclaudius "C:\Users\YOUR_USERNAME\.local\bin\uv.exe" "run pyclaudius"
 nssm set pyclaudius AppDirectory "C:\path\to\pyclaudius"
 nssm set pyclaudius DisplayName "pyclaudius Telegram Bot"
-nssm set pyclaudius Description "Telegram bot relay for Claude Code"
+nssm set pyclaudius Description "Telegram bot relay for opencode"
 nssm set pyclaudius Start SERVICE_AUTO_START
 
 # Set environment variables
@@ -101,9 +101,9 @@ nssm remove pyclaudius   # Uninstall (confirm prompt)
    - Use full path: `C:\Users\YOUR_USERNAME\.local\bin\uv.exe`
    - Or add uv to system PATH
 
-2. **"claude not found"**
-   - Ensure Claude Code is installed: `npm install -g @anthropic-ai/claude-code`
-   - Use full path in CLAUDE_PATH env variable
+2. **"opencode not found"**
+   - Ensure opencode is installed: `npm install -g opencode-ai`
+   - Use full path in OPENCODE_PATH env variable
 
 3. **Environment variables not loading**
    - For Task Scheduler: Set them in the task's "Actions" settings

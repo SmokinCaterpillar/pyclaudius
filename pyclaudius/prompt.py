@@ -11,7 +11,7 @@ def build_prompt(
     is_scheduled: bool = False,
     timezone: str | None = None,
 ) -> str:
-    """Build the full prompt with system context for Claude."""
+    """Build the full prompt with system context for the model."""
     tz = get_zoneinfo(timezone=timezone)
     now = datetime.now(tz=UTC).astimezone(tz)
     tz_label = timezone or "UTC"

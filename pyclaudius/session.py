@@ -1,15 +1,24 @@
 import json
-import re
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pyclaudius.opencode import is_resumable_session
+
 
 def load_session(*, session_file: Path) -> dict:
-    """Load session state from JSON file. Returns defaults if missing."""
+    """Load session state from JSON file. Returns defaults if missing.
+
+    A stored id that opencode could not resume — notably a uuid written by a
+    pre-opencode version of pyclaudius — is dropped so the next message simply
+    starts a fresh session instead of failing on ``--session``.
+    """
     try:
         data = json.loads(session_file.read_text())
+        session_id = data.get("session_id")
+        if not is_resumable_session(session_id=session_id):
+            session_id = None
         return {
-            "session_id": data.get("session_id"),
+            "session_id": session_id,
             "last_activity": data.get("last_activity", ""),
         }
     except (FileNotFoundError, json.JSONDecodeError):
@@ -32,9 +41,3 @@ def save_session(
             indent=2,
         )
     )
-
-
-def extract_session_id(*, output: str) -> str | None:
-    """Extract session ID from Claude CLI output."""
-    match = re.search(r"Session ID: ([a-f0-9-]+)", output, re.IGNORECASE)
-    return match.group(1) if match else None

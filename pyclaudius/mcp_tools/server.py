@@ -7,6 +7,7 @@ from fastmcp import FastMCP
 from pyclaudius import operations
 from pyclaudius.backlog import BacklogItem
 from pyclaudius.bot_data import BotData
+from pyclaudius.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -125,8 +126,39 @@ def create_mcp_server(*, bot_data: BotData) -> FastMCP:
     return mcp
 
 
-def get_allowed_tools_wildcard() -> str:
-    """Return an ``--allowedTools`` wildcard pattern for all pyclaudius MCP tools."""
+# Tools registered by ``create_mcp_server``, grouped by the setting that gates
+# them. ``test_mcp_server`` asserts this stays in step with the real server, so
+# the permission map can never silently drift from what is actually exposed.
+_TOOLS_BY_FLAG: dict[str, tuple[str, ...]] = {
+    "cron_enabled": (
+        "list_cron_jobs",
+        "add_cron_job",
+        "schedule_once",
+        "remove_cron_job",
+    ),
+    "memory_enabled": ("remember_fact", "forget_memory", "list_memories"),
+    "email_enabled": ("download_new_mail", "delete_read_mail"),
+    "backlog_enabled": (
+        "list_backlog",
+        "clear_backlog",
+        "replay_one",
+        "replay_backlog",
+    ),
+}
+
+
+def mcp_tool_names(*, settings: Settings) -> list[str]:
+    """Return the enabled MCP tool names as opencode addresses them.
+
+    opencode namespaces MCP tools as ``<server>_<tool>`` (verified against a
+    live run: ``pyclaudius_list_cron_jobs``), unlike the Claude CLI's
+    ``mcp__<server>__<tool>``. Names are enumerated rather than wildcarded so
+    the generated permission map lists exactly what exists.
+    """
     from pyclaudius.mcp_tools.config import MCP_SERVER_NAME
 
-    return f"mcp__{MCP_SERVER_NAME}__*"
+    names: list[str] = []
+    for flag, tools in _TOOLS_BY_FLAG.items():
+        if getattr(settings, flag):
+            names.extend(f"{MCP_SERVER_NAME}_{tool}" for tool in tools)
+    return names

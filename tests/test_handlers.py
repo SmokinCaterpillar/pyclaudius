@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from pyclaudius.handlers import (
+    format_context_usage,
     handle_clear_command,
     handle_clearbacklog_command,
     handle_compact_command,
@@ -28,33 +29,37 @@ def _make_context(
     allowed_tools=None,
     cron_enabled=False,
     backlog_enabled=True,
-    claude_model=None,
-    claude_effort=None,
+    opencode_model="tensorx/moonshotai/kimi-k3",
+    opencode_context_limit=1_048_576,
 ):
     context = MagicMock()
-    claude_work_dir = tmp_path / "claude-work"
+    opencode_work_dir = tmp_path / "work"
     context.bot_data = {
         "settings": MagicMock(
             telegram_user_id="12345",
-            claude_path="claude",
+            opencode_path="opencode",
+            tensorx_api_key="sk-test",
             session_file=tmp_path / "session.json",
-            uploads_dir=claude_work_dir / "uploads",
+            uploads_dir=opencode_work_dir / "uploads",
             memory_enabled=memory_enabled,
             max_memories=max_memories,
             memory_file=tmp_path / "memory.json",
             allowed_tools=allowed_tools or [],
-            claude_work_dir=claude_work_dir,
+            opencode_work_dir=opencode_work_dir,
+            opencode_config_file=tmp_path / "opencode.json",
             cron_enabled=cron_enabled,
             cron_file=tmp_path / "cron.json",
             backlog_enabled=backlog_enabled,
             backlog_file=tmp_path / "backlog.json",
-            claude_timeout=300,
-            claude_model=claude_model,
-            claude_effort=claude_effort,
+            opencode_timeout=300,
+            opencode_model=opencode_model,
+            opencode_auto_approve=False,
+            opencode_context_limit=opencode_context_limit,
         ),
         "session": {"session_id": None, "last_activity": ""},
         "memory": [],
-        "mcp_allowed_tools": [],
+        "mcp_tool_names": [],
+        "last_run": {},
         "cron_jobs": [],
         "backlog": [],
         "scheduler": MagicMock(),
@@ -88,12 +93,12 @@ async def test_handle_text_success(tmp_path):
     update = _make_update(text="hello claude")
     context = _make_context(tmp_path)
     with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Hi there!", "session-abc")
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("Hi there!", "session-abc")
         await handle_text(update, context)
-        mock_claude.assert_called_once()
-        kwargs = mock_claude.call_args.kwargs
+        mock_opencode.assert_called_once()
+        kwargs = mock_opencode.call_args.kwargs
         assert kwargs["bot_data"] is context.bot_data
         assert kwargs["user_message"] == "hello claude"
         update.message.reply_text.assert_called_once_with("Hi there!")
@@ -101,33 +106,33 @@ async def test_handle_text_success(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_handle_text_forwards_model_and_effort(tmp_path):
-    update = _make_update(text="hello claude")
-    context = _make_context(
-        tmp_path, claude_model="claude-sonnet-4-6", claude_effort="high"
-    )
+async def test_handle_text_forwards_model(tmp_path):
+    update = _make_update(text="hello opencode")
+    context = _make_context(tmp_path, opencode_model="tensorx/z-ai/glm-5")
     with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Hi there!", "session-abc")
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("Hi there!", "session-abc")
         await handle_text(update, context)
-        kwargs = mock_claude.call_args.kwargs
-        assert kwargs["model"] == "claude-sonnet-4-6"
-        assert kwargs["effort"] == "high"
+        kwargs = mock_opencode.call_args.kwargs
+        assert kwargs["model"] == "tensorx/z-ai/glm-5"
+        assert "effort" not in kwargs
 
 
 @pytest.mark.asyncio
-async def test_handle_text_model_and_effort_default_none(tmp_path):
+async def test_handle_text_model_defaults_to_settings(tmp_path):
     update = _make_update(text="hello claude")
     context = _make_context(tmp_path)
     with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Hi there!", "session-abc")
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("Hi there!", "session-abc")
         await handle_text(update, context)
-        kwargs = mock_claude.call_args.kwargs
-        assert kwargs["model"] is None
-        assert kwargs["effort"] is None
+        kwargs = mock_opencode.call_args.kwargs
+        assert kwargs["model"] == "tensorx/moonshotai/kimi-k3"
+        assert kwargs["opencode_path"] == "opencode"
+        assert kwargs["api_key"] == "sk-test"
+        assert kwargs["auto_approve"] is False
 
 
 @pytest.mark.asyncio
@@ -135,16 +140,16 @@ async def test_handle_text_no_session_update(tmp_path):
     update = _make_update(text="test")
     context = _make_context(tmp_path)
     with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("response", None)
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("response", None)
         await handle_text(update, context)
         assert context.bot_data["session"]["session_id"] is None
 
 
 @pytest.mark.asyncio
 async def test_handle_photo_success(tmp_path):
-    uploads = tmp_path / "claude-work" / "uploads"
+    uploads = tmp_path / "work" / "uploads"
     uploads.mkdir(parents=True)
 
     update = _make_update()
@@ -157,15 +162,20 @@ async def test_handle_photo_success(tmp_path):
     context.bot.get_file.return_value = file_mock
 
     with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Nice photo!", None)
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("Nice photo!", None)
         await handle_photo(update, context)
-        mock_claude.assert_called_once()
-        kwargs = mock_claude.call_args.kwargs
+        mock_opencode.assert_called_once()
+        kwargs = mock_opencode.call_args.kwargs
         assert kwargs["bot_data"] is context.bot_data
         assert kwargs["user_message"] == "Analyze this image."
-        assert kwargs["add_dirs"] == [str(uploads)]
+        # uploads_dir sits inside opencode_work_dir (the cwd), so no extra
+        # directory has to be granted — the file is attached instead.
+        assert "add_dirs" not in kwargs
+        assert kwargs["cwd"] == str(context.bot_data["settings"].opencode_work_dir)
+        assert len(kwargs["files"]) == 1
+        assert str(uploads) in kwargs["files"][0]
         assert "[Image: uploads/image_1.jpg]" in kwargs["prompt"]
         update.message.reply_text.assert_called_once_with("Nice photo!")
         context.bot.get_file.assert_called_once_with("photo123")
@@ -173,7 +183,7 @@ async def test_handle_photo_success(tmp_path):
 
 @pytest.mark.asyncio
 async def test_handle_document_success(tmp_path):
-    uploads = tmp_path / "claude-work" / "uploads"
+    uploads = tmp_path / "work" / "uploads"
     uploads.mkdir(parents=True)
 
     update = _make_update()
@@ -186,15 +196,20 @@ async def test_handle_document_success(tmp_path):
     context.bot.get_file.return_value = file_mock
 
     with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Document analyzed!", None)
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("Document analyzed!", None)
         await handle_document(update, context)
-        mock_claude.assert_called_once()
-        kwargs = mock_claude.call_args.kwargs
+        mock_opencode.assert_called_once()
+        kwargs = mock_opencode.call_args.kwargs
         assert kwargs["bot_data"] is context.bot_data
         assert kwargs["user_message"] == "Analyze: test.pdf"
-        assert kwargs["add_dirs"] == [str(uploads)]
+        # uploads_dir sits inside opencode_work_dir (the cwd), so no extra
+        # directory has to be granted — the file is attached instead.
+        assert "add_dirs" not in kwargs
+        assert kwargs["cwd"] == str(context.bot_data["settings"].opencode_work_dir)
+        assert len(kwargs["files"]) == 1
+        assert str(uploads) in kwargs["files"][0]
         assert "[File: uploads/1_test.pdf]" in kwargs["prompt"]
         update.message.reply_text.assert_called_once_with("Document analyzed!")
 
@@ -223,11 +238,11 @@ async def test_handle_text_memory_injected_into_prompt(tmp_path):
     context = _make_context(tmp_path, memory_enabled=True)
     context.bot_data["memory"] = ["user likes coffee"]
     with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Hi!", None)
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("Hi!", None)
         await handle_text(update, context)
-        prompt_arg = mock_claude.call_args.kwargs["prompt"]
+        prompt_arg = mock_opencode.call_args.kwargs["prompt"]
         assert "## Memory" in prompt_arg
         assert "- user likes coffee" in prompt_arg
 
@@ -238,11 +253,11 @@ async def test_handle_text_memory_not_injected_when_disabled(tmp_path):
     context = _make_context(tmp_path, memory_enabled=False)
     context.bot_data["memory"] = ["user likes coffee"]
     with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Hi!", None)
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("Hi!", None)
         await handle_text(update, context)
-        prompt_arg = mock_claude.call_args.kwargs["prompt"]
+        prompt_arg = mock_opencode.call_args.kwargs["prompt"]
         assert "## Memory" not in prompt_arg
 
 
@@ -439,11 +454,11 @@ async def test_handle_text_cron_count_in_prompt(tmp_path):
         }
     ]
     with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Hi!", None)
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("Hi!", None)
         await handle_text(update, context)
-        prompt_arg = mock_claude.call_args.kwargs["prompt"]
+        prompt_arg = mock_opencode.call_args.kwargs["prompt"]
         assert "1 scheduled task(s)" in prompt_arg
 
 
@@ -454,9 +469,9 @@ async def test_handle_text_scheduled_silent_suppresses_reply(tmp_path):
     context = _make_context(tmp_path, cron_enabled=True)
     context.bot_data["_scheduled_update_ids"] = {42}
     with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("[SILENT]", None)
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("[SILENT]", None)
         await handle_text(update, context)
         update.message.reply_text.assert_not_called()
         assert 42 not in context.bot_data.get("_scheduled_update_ids", set())
@@ -469,9 +484,9 @@ async def test_handle_text_scheduled_without_silent_sends_reply(tmp_path):
     context = _make_context(tmp_path, cron_enabled=True)
     context.bot_data["_scheduled_update_ids"] = {43}
     with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("It's sunny today!", None)
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("It's sunny today!", None)
         await handle_text(update, context)
         update.message.reply_text.assert_called_once_with("It's sunny today!")
         assert 43 not in context.bot_data.get("_scheduled_update_ids", set())
@@ -482,9 +497,9 @@ async def test_handle_text_suppresses_silent_response(tmp_path):
     update = _make_update(text="hello")
     context = _make_context(tmp_path)
     with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("[SILENT]", "session-id")
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("[SILENT]", "session-id")
         await handle_text(update, context)
         update.message.reply_text.assert_not_called()
         assert context.bot_data["session"]["session_id"] == "session-id"
@@ -495,9 +510,9 @@ async def test_handle_text_suppresses_silent_case_insensitive(tmp_path):
     update = _make_update(text="hello")
     context = _make_context(tmp_path)
     with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("  [silent]\n", "session-id")
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("  [silent]\n", "session-id")
         await handle_text(update, context)
         update.message.reply_text.assert_not_called()
 
@@ -516,39 +531,34 @@ async def test_handle_help_command_shows_cron_commands(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_handle_text_passes_allowed_tools(tmp_path):
-    """Settings allowed_tools are passed to call_claude."""
+async def test_handle_text_passes_config_file(tmp_path):
+    """Tool permissions live in the generated config, not in argv."""
     update = _make_update(text="hello")
-    context = _make_context(tmp_path, allowed_tools=["WebSearch", "WebFetch"])
+    context = _make_context(tmp_path, allowed_tools=["patch"])
     with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Hi!", None)
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("Hi!", None)
         await handle_text(update, context)
-        tools_arg = mock_claude.call_args.kwargs["allowed_tools"]
-        assert tools_arg == ["Read", "Bash", "Edit", "Write", "WebSearch", "WebFetch"]
+        kwargs = mock_opencode.call_args.kwargs
+        assert kwargs["config_file"] == tmp_path / "opencode.json"
+        assert "allowed_tools" not in kwargs
 
 
 @pytest.mark.asyncio
-async def test_handle_text_includes_mcp_allowed_tools(tmp_path):
-    """MCP tool names from bot_data are appended to allowed_tools."""
+async def test_handle_text_records_usage_for_context_command(tmp_path):
     update = _make_update(text="hello")
-    context = _make_context(tmp_path, allowed_tools=["WebSearch"])
-    context.bot_data["mcp_allowed_tools"] = ["mcp__pyclaudius__*"]
-    with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Hi!", None)
+    context = _make_context(tmp_path)
+
+    async def fake_call(**kwargs):
+        kwargs["run_info"]["tokens"] = 1234
+        kwargs["run_info"]["cost"] = 0.05
+        return "Hi!", "ses_1"
+
+    with patch("pyclaudius.handlers.call_opencode", side_effect=fake_call):
         await handle_text(update, context)
-        tools_arg = mock_claude.call_args.kwargs["allowed_tools"]
-        assert tools_arg == [
-            "Read",
-            "Bash",
-            "Edit",
-            "Write",
-            "WebSearch",
-            "mcp__pyclaudius__*",
-        ]
+    assert context.bot_data["last_run"]["tokens"] == 1234
+    assert context.bot_data["last_run"]["cost"] == 0.05
 
 
 # --- Backlog command tests ---
@@ -650,14 +660,14 @@ async def test_handle_replaybacklog_command_replays(tmp_path):
         {"prompt": "second question", "created_at": "2026-01-02T00:00:00"},
     ]
     with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Answer!", "sess-1")
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("Answer!", "sess-1")
         await handle_replaybacklog_command(update, context)
-        assert mock_claude.call_count == 2
+        assert mock_opencode.call_count == 2
         assert context.bot_data["backlog"] == []
         # Prompts should contain backlog prefix
-        for call in mock_claude.call_args_list:
+        for call in mock_opencode.call_args_list:
             prompt_arg = call.kwargs["prompt"]
             assert "Backlog" in prompt_arg
             assert "originally sent at" in prompt_arg
@@ -687,12 +697,12 @@ async def test_handle_replayone_command_success(tmp_path):
         {"prompt": "hello world", "created_at": "2026-01-01T00:00:00"},
     ]
     with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Answer!", "sess-1")
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("Answer!", "sess-1")
         await handle_replayone_command(update, context)
-        mock_claude.assert_called_once()
-        kwargs = mock_claude.call_args.kwargs
+        mock_opencode.assert_called_once()
+        kwargs = mock_opencode.call_args.kwargs
         assert kwargs["user_message"] == "hello world"
         assert context.bot_data["backlog"] == []
         # Prompt should contain backlog prefix
@@ -738,65 +748,51 @@ async def test_handle_replayone_command_unauthorized(tmp_path):
 
 @pytest.mark.asyncio
 async def test_handle_text_empty_response(tmp_path):
-    """Empty response from Claude triggers fallback message."""
+    """Empty response from opencode triggers fallback message."""
     update = _make_update(text="hello")
     context = _make_context(tmp_path)
     with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("", "session-abc")
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("", "session-abc")
         await handle_text(update, context)
         update.message.reply_text.assert_called_once_with(
-            "(empty response from Claude)"
+            "(empty response from opencode)"
         )
 
 
 @pytest.mark.asyncio
 async def test_handle_clear_command_with_session(tmp_path):
-    """Clear command sends /clear to CLI and clears session."""
+    """/clear is purely local now: stop resuming, spawn nothing."""
     update = _make_update(text="/clear")
     context = _make_context(tmp_path)
-    context.bot_data["session"]["session_id"] = "old-session"
+    context.bot_data["session"]["session_id"] = "ses_old"
+    context.bot_data["last_run"] = {"tokens": 10}
     with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("", None)
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
         await handle_clear_command(update, context)
-        mock_claude.assert_called_once()
-        assert mock_claude.call_args.kwargs["prompt"] == "/clear"
-        assert mock_claude.call_args.kwargs["session_id"] == "old-session"
-        assert mock_claude.call_args.kwargs["resume"] is True
+        mock_opencode.assert_not_called()
     assert context.bot_data["session"]["session_id"] is None
+    assert context.bot_data["last_run"] == {}
     update.message.reply_text.assert_called_once_with("Session cleared.")
 
 
 @pytest.mark.asyncio
-async def test_handle_clear_command_forwards_model_and_effort(tmp_path):
-    """Slash commands also thread claude_model/claude_effort through."""
+async def test_handle_clear_command_persists_cleared_session(tmp_path):
     update = _make_update(text="/clear")
-    context = _make_context(
-        tmp_path, claude_model="claude-sonnet-4-6", claude_effort="high"
-    )
-    context.bot_data["session"]["session_id"] = "old-session"
-    with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("", None)
+    context = _make_context(tmp_path)
+    context.bot_data["session"]["session_id"] = "ses_old"
+    with patch("pyclaudius.handlers.save_session") as mock_save:
         await handle_clear_command(update, context)
-        assert mock_claude.call_args.kwargs["model"] == "claude-sonnet-4-6"
-        assert mock_claude.call_args.kwargs["effort"] == "high"
+    assert mock_save.call_args.kwargs["session_id"] is None
 
 
 @pytest.mark.asyncio
 async def test_handle_clear_command_no_session(tmp_path):
-    """Clear command without active session skips Claude call."""
     update = _make_update(text="/clear")
     context = _make_context(tmp_path)
-    with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        await handle_clear_command(update, context)
-        mock_claude.assert_not_called()
+    await handle_clear_command(update, context)
     assert context.bot_data["session"]["session_id"] is None
     update.message.reply_text.assert_called_once_with("Session cleared.")
 
@@ -811,29 +807,43 @@ async def test_handle_clear_command_unauthorized(tmp_path):
 
 @pytest.mark.asyncio
 async def test_handle_compact_command_success(tmp_path):
-    """Compact command sends /compact to CLI and relays response."""
+    """/compact drives the opencode server's summarize endpoint."""
     update = _make_update(text="/compact")
     context = _make_context(tmp_path)
-    context.bot_data["session"]["session_id"] = "my-session"
+    context.bot_data["session"]["session_id"] = "ses_mine"
     with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Context compacted.", "my-session")
+        "pyclaudius.handlers.compact_session", new_callable=AsyncMock
+    ) as mock_compact:
+        mock_compact.return_value = "Context compacted."
         await handle_compact_command(update, context)
-        mock_claude.assert_called_once()
-        assert mock_claude.call_args.kwargs["prompt"] == "/compact"
-        assert mock_claude.call_args.kwargs["session_id"] == "my-session"
-        assert mock_claude.call_args.kwargs["resume"] is True
-    assert context.bot_data["session"]["session_id"] == "my-session"
+    assert mock_compact.call_args.kwargs["session_id"] == "ses_mine"
+    # Compaction keeps the same session, so the stored id must survive.
+    assert context.bot_data["session"]["session_id"] == "ses_mine"
     update.message.reply_text.assert_called_once_with("Context compacted.")
 
 
 @pytest.mark.asyncio
-async def test_handle_compact_command_no_session(tmp_path):
-    """Compact command without active session replies with error."""
+async def test_handle_compact_command_relays_failure(tmp_path):
     update = _make_update(text="/compact")
     context = _make_context(tmp_path)
-    await handle_compact_command(update, context)
+    context.bot_data["session"]["session_id"] = "ses_mine"
+    with patch(
+        "pyclaudius.handlers.compact_session", new_callable=AsyncMock
+    ) as mock_compact:
+        mock_compact.return_value = "Compaction failed — HTTP 500"
+        await handle_compact_command(update, context)
+    update.message.reply_text.assert_called_once_with("Compaction failed — HTTP 500")
+
+
+@pytest.mark.asyncio
+async def test_handle_compact_command_no_session(tmp_path):
+    update = _make_update(text="/compact")
+    context = _make_context(tmp_path)
+    with patch(
+        "pyclaudius.handlers.compact_session", new_callable=AsyncMock
+    ) as mock_compact:
+        await handle_compact_command(update, context)
+        mock_compact.assert_not_called()
     update.message.reply_text.assert_called_once_with("No active session to compact.")
 
 
@@ -850,21 +860,31 @@ async def test_handle_compact_command_unauthorized(tmp_path):
 
 @pytest.mark.asyncio
 async def test_handle_context_command_success(tmp_path):
-    """Context command sends /context to CLI and relays response."""
+    """/context is answered from the last run's token usage, with no subprocess."""
     update = _make_update(text="/context")
     context = _make_context(tmp_path)
-    context.bot_data["session"]["session_id"] = "my-session"
+    context.bot_data["session"]["session_id"] = "ses_mine"
+    context.bot_data["last_run"] = {"tokens": 104_857, "cost": 0.0175}
     with patch(
-        "pyclaudius.handlers.call_claude", new_callable=AsyncMock
-    ) as mock_claude:
-        mock_claude.return_value = ("Context: 50% used", "my-session")
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
         await handle_context_command(update, context)
-        mock_claude.assert_called_once()
-        assert mock_claude.call_args.kwargs["prompt"] == "/context"
-        assert mock_claude.call_args.kwargs["session_id"] == "my-session"
-        assert mock_claude.call_args.kwargs["resume"] is True
-    assert context.bot_data["session"]["session_id"] == "my-session"
-    update.message.reply_text.assert_called_once_with("Context: 50% used")
+        mock_opencode.assert_not_called()
+    reply = update.message.reply_text.call_args[0][0]
+    assert "104,857" in reply
+    assert "1,048,576" in reply
+    assert "10.0%" in reply
+    assert "$0.0175" in reply
+
+
+@pytest.mark.asyncio
+async def test_handle_context_command_without_usage_yet(tmp_path):
+    update = _make_update(text="/context")
+    context = _make_context(tmp_path)
+    context.bot_data["session"]["session_id"] = "ses_mine"
+    await handle_context_command(update, context)
+    reply = update.message.reply_text.call_args[0][0]
+    assert "No usage recorded yet" in reply
 
 
 @pytest.mark.asyncio
@@ -882,3 +902,101 @@ async def test_handle_context_command_unauthorized(tmp_path):
     context = _make_context(tmp_path)
     await handle_context_command(update, context)
     update.message.reply_text.assert_called_once_with("This bot is private.")
+
+
+@pytest.mark.asyncio
+async def test_handle_text_resumes_the_stored_session(tmp_path):
+    """Continuity is the whole point: every message must resume, not restart."""
+    update = _make_update(text="hello")
+    context = _make_context(tmp_path)
+    context.bot_data["session"]["session_id"] = "ses_existing"
+    with patch(
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("Hi!", "ses_existing")
+        await handle_text(update, context)
+    kwargs = mock_opencode.call_args.kwargs
+    assert kwargs["resume"] is True
+    assert kwargs["session_id"] == "ses_existing"
+
+
+@pytest.mark.asyncio
+async def test_handle_photo_resumes_the_stored_session(tmp_path):
+    """An image must join the conversation, not start a new one."""
+    update = _make_update(text=None)
+    update.message.photo = [MagicMock(file_id="f1")]
+    update.message.caption = "what is this"
+    context = _make_context(tmp_path)
+    context.bot_data["session"]["session_id"] = "ses_existing"
+    context.bot_data["settings"].uploads_dir.mkdir(parents=True, exist_ok=True)
+    with patch(
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("A cat.", "ses_existing")
+        await handle_photo(update, context)
+    kwargs = mock_opencode.call_args.kwargs
+    assert kwargs["resume"] is True
+    assert kwargs["session_id"] == "ses_existing"
+
+
+@pytest.mark.asyncio
+async def test_handle_text_attaches_nothing(tmp_path):
+    """Plain text messages must not attach files."""
+    update = _make_update(text="hello")
+    context = _make_context(tmp_path)
+    with patch(
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = ("Hi!", None)
+        await handle_text(update, context)
+    assert mock_opencode.call_args.kwargs["files"] is None
+
+
+@pytest.mark.asyncio
+async def test_replaybacklog_stops_when_an_item_is_requeued(tmp_path):
+    """Any failure category must stop the loop, not just auth errors."""
+    update = _make_update(text="/replaybacklog")
+    context = _make_context(tmp_path)
+    context.bot_data["backlog"] = [
+        {"prompt": "one", "created_at": "2026-01-01T00:00:00"},
+        {"prompt": "two", "created_at": "2026-01-01T00:00:00"},
+        {"prompt": "three", "created_at": "2026-01-01T00:00:00"},
+    ]
+    with patch(
+        "pyclaudius.handlers.call_opencode", new_callable=AsyncMock
+    ) as mock_opencode:
+        mock_opencode.return_value = (
+            "Provider rate limit reached. Message saved to backlog (1 pending).\nhint",
+            None,
+        )
+        await handle_replaybacklog_command(update, context)
+    assert mock_opencode.call_count == 1
+
+
+# --- /context formatting ---
+
+
+def test_format_context_usage_reports_share_of_the_window():
+    text = format_context_usage(tokens=104_857, cost=0.0175, context_limit=1_048_576)
+    assert "104,857" in text
+    assert "1,048,576" in text
+    assert "10.0%" in text
+    assert "$0.0175" in text
+
+
+def test_format_context_usage_without_cost():
+    text = format_context_usage(tokens=1000, cost=None, context_limit=1_048_576)
+    assert "cost" not in text.lower()
+    assert "1,000" in text
+
+
+def test_format_context_usage_without_usage():
+    assert "No usage recorded yet" in format_context_usage(
+        tokens=None, cost=None, context_limit=1_048_576
+    )
+
+
+def test_format_context_usage_survives_a_zero_limit():
+    """A misconfigured limit must not raise ZeroDivisionError in a handler."""
+    text = format_context_usage(tokens=10, cost=None, context_limit=0)
+    assert "0.0%" in text

@@ -1,19 +1,19 @@
 import asyncio
-import contextlib
 import logging
 import os
+from contextlib import AsyncExitStack, suppress
 from typing import cast
 
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
-from pyclaudius.backlog import BacklogItem
+from pyclaudius.backlog import BACKLOG_SAVED_MARKER, BacklogItem
 from pyclaudius.bot_data import BotData, SessionState
-from pyclaudius.claude import call_claude
 from pyclaudius.config import Settings
 from pyclaudius.cron.models import ScheduledJob
 from pyclaudius.memory import format_memory_section
+from pyclaudius.opencode import RunInfo, call_opencode
 from pyclaudius.operations import (
     clear_backlog,
     delete_read_mail_op,
@@ -27,13 +27,11 @@ from pyclaudius.operations import (
 from pyclaudius.prompt import build_prompt
 from pyclaudius.response import has_silent_tag, split_response
 from pyclaudius.session import save_session
+from pyclaudius.summarize import compact_session
 from pyclaudius.timezone import find_timezones, save_timezone
 from pyclaudius.tooling import authorized
 
 logger = logging.getLogger(__name__)
-
-
-_BUILTIN_TOOLS = ["Read", "Bash", "Edit", "Write"]
 
 
 def _get_memory_section(*, settings: Settings, memory: list[str]) -> str | None:
@@ -48,50 +46,37 @@ def _get_cron_count(*, settings: Settings, cron_jobs: list[ScheduledJob]) -> int
     return None
 
 
-def _get_allowed_tools(*, settings: Settings, bot_data: BotData) -> list[str]:
-    """Combine user-configured allowed tools with MCP tool names.
-
-    When extra tools (settings or MCP) are specified, built-in tools are
-    prepended so that ``--allowedTools`` does not accidentally restrict
-    Claude from basic file operations.
-    """
-    extra = list(settings.allowed_tools) + bot_data["mcp_allowed_tools"]
-    if extra:
-        return _BUILTIN_TOOLS + extra
-    return extra
-
-
 async def _send_response(*, message: object, response: str) -> None:
     """Send response chunks to the user, with fallback for empty responses.
 
     A response containing ``[SILENT]`` is suppressed entirely — no reply
     is sent. Empty responses (the system-level "session broken" signal)
-    still surface to the user as ``(empty response from Claude)``.
+    still surface to the user as ``(empty response from opencode)``.
     """
     if has_silent_tag(text=response):
         logger.info("Response was [SILENT], suppressing reply")
         return
     chunks = split_response(text=response)
     if not chunks:
-        await message.reply_text("(empty response from Claude)")
+        await message.reply_text("(empty response from opencode)")
         return
     for chunk in chunks:
         await message.reply_text(chunk)
 
 
-async def _run_claude(
-    *, claude_lock: asyncio.Lock | None, **kwargs: object
+async def _run_opencode(
+    *, opencode_lock: asyncio.Lock | None, **kwargs: object
 ) -> tuple[str, str | None]:
-    """Invoke ``call_claude``, optionally serialised through the global lock.
+    """Invoke ``call_opencode``, optionally serialised through the global lock.
 
     The lock is held for the full duration of the wrapped call (including
     the ``with_backlog`` retry path), so concurrent Telegram updates cannot
-    overlap Claude CLI invocations.
+    overlap opencode CLI invocations.
     """
-    if claude_lock is None:
-        return await call_claude(**kwargs)
-    async with claude_lock:
-        return await call_claude(**kwargs)
+    if opencode_lock is None:
+        return await call_opencode(**kwargs)
+    async with opencode_lock:
+        return await call_opencode(**kwargs)
 
 
 def _persist_session_id(
@@ -105,19 +90,19 @@ def _persist_session_id(
     )
 
 
-async def _claude_round_trip(
+async def _opencode_round_trip(
     *,
     context: ContextTypes.DEFAULT_TYPE,
     user_message: str,
     prompt_user_message: str,
-    add_dirs: list[str] | None = None,
+    files: list[str] | None = None,
     is_scheduled: bool = False,
 ) -> tuple[str, str | None]:
-    """Build a prompt, run Claude under the lock, persist the session id.
+    """Build a prompt, run opencode under the lock, persist the session id.
 
     ``user_message`` is the raw text used by ``with_backlog`` to save a
     backlog entry on recoverable failures; ``prompt_user_message`` is the
-    (possibly decorated) text fed into ``build_prompt`` for Claude.
+    (possibly decorated) text fed into ``build_prompt`` for the model.
     """
     bot_data = cast(BotData, context.bot_data)
     settings = bot_data["settings"]
@@ -133,25 +118,28 @@ async def _claude_round_trip(
         timezone=bot_data.get("user_timezone"),
     )
 
+    run_info: RunInfo = {}
     call_kwargs: dict = dict(
         prompt=prompt,
-        claude_path=settings.claude_path,
+        opencode_path=settings.opencode_path,
+        api_key=settings.tensorx_api_key,
         session_id=session.get("session_id"),
         resume=True,
-        allowed_tools=_get_allowed_tools(settings=settings, bot_data=bot_data),
-        model=settings.claude_model,
-        effort=settings.claude_effort,
-        cwd=str(settings.claude_work_dir),
-        timeout=settings.claude_timeout,
+        model=settings.opencode_model,
+        files=files,
+        cwd=str(settings.opencode_work_dir),
+        config_file=settings.opencode_config_file,
+        auto_approve=settings.opencode_auto_approve,
+        timeout=settings.opencode_timeout,
+        run_info=run_info,
         bot_data=bot_data,
         user_message=user_message,
     )
-    if add_dirs is not None:
-        call_kwargs["add_dirs"] = add_dirs
 
-    response, new_session_id = await _run_claude(
-        claude_lock=bot_data.get("claude_lock"), **call_kwargs
+    response, new_session_id = await _run_opencode(
+        opencode_lock=bot_data.get("opencode_lock"), **call_kwargs
     )
+    bot_data["last_run"] = run_info
     _persist_session_id(
         settings=settings, session=session, new_session_id=new_session_id
     )
@@ -172,7 +160,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     logger.info(f"Text from {update.effective_user.id}: {text[:50]}")
     await update.message.chat.send_action(action=ChatAction.TYPING)
 
-    response, _ = await _claude_round_trip(
+    response, _ = await _opencode_round_trip(
         context=context,
         user_message=text,
         prompt_user_message=text,
@@ -206,16 +194,16 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await file.download_to_drive(custom_path=str(file_path))
 
     caption = update.message.caption or "Analyze this image."
-    response, _ = await _claude_round_trip(
+    response, _ = await _opencode_round_trip(
         context=context,
         user_message=caption,
         prompt_user_message=f"[Image: uploads/{file_name}]\n\n{caption}",
-        add_dirs=[str(settings.uploads_dir)],
+        files=[str(file_path)],
     )
 
     await _send_response(message=update.message, response=response)
 
-    with contextlib.suppress(OSError):
+    with suppress(OSError):
         os.unlink(file_path)
 
 
@@ -238,16 +226,16 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await file.download_to_drive(custom_path=str(file_path))
 
     caption = update.message.caption or f"Analyze: {file_name}"
-    response, _ = await _claude_round_trip(
+    response, _ = await _opencode_round_trip(
         context=context,
         user_message=caption,
         prompt_user_message=f"[File: uploads/{stored_name}]\n\n{caption}",
-        add_dirs=[str(settings.uploads_dir)],
+        files=[str(file_path)],
     )
 
     await _send_response(message=update.message, response=response)
 
-    with contextlib.suppress(OSError):
+    with suppress(OSError):
         os.unlink(file_path)
 
 
@@ -488,7 +476,7 @@ async def handle_replaybacklog_command(
         item = remove_backlog_item(index=1, bot_data=bot_data)
         await update.message.chat.send_action(action=ChatAction.TYPING)
 
-        response, _ = await _claude_round_trip(
+        response, _ = await _opencode_round_trip(
             context=context,
             user_message=item["prompt"],
             prompt_user_message=_format_backlog_prompt(item=item),
@@ -496,9 +484,11 @@ async def handle_replaybacklog_command(
 
         await _send_response(message=update.message, response=response)
 
-        # If the auth error hit again, the decorator already re-queued the
-        # item — stop so we don't spin forever.
-        if "Authentication error" in response and "backlog" in response:
+        # If the failure recurred, the decorator already re-queued the item —
+        # stop so we don't spin through the whole backlog re-queueing it. Any
+        # failure category counts, not just auth: a rate limit would otherwise
+        # burn one call per item.
+        if BACKLOG_SAVED_MARKER in response:
             break
 
 
@@ -531,7 +521,7 @@ async def handle_replayone_command(
 
     await update.message.chat.send_action(action=ChatAction.TYPING)
 
-    response, _ = await _claude_round_trip(
+    response, _ = await _opencode_round_trip(
         context=context,
         user_message=item["prompt"],
         prompt_user_message=_format_backlog_prompt(item=item),
@@ -540,42 +530,24 @@ async def handle_replayone_command(
     await _send_response(message=update.message, response=response)
 
 
-def _slash_command_kwargs(*, prompt: str, settings: Settings, session_id: str) -> dict:
-    return dict(
-        prompt=prompt,
-        claude_path=settings.claude_path,
-        session_id=session_id,
-        resume=True,
-        model=settings.claude_model,
-        effort=settings.claude_effort,
-        cwd=str(settings.claude_work_dir),
-        timeout=settings.claude_timeout,
-    )
-
-
 @authorized
 async def handle_clear_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Handle /clear command — clear session and start fresh."""
+    """Handle /clear command — clear session and start fresh.
+
+    Nothing is sent to opencode: the session stays in opencode's own storage,
+    pyclaudius simply stops resuming it, so the next message opens a fresh one.
+    """
     settings: Settings = context.bot_data["settings"]
     session: SessionState = context.bot_data["session"]
 
     if not update.message:
         return
 
-    session_id = session.get("session_id")
-    if session_id:
-        await update.message.chat.send_action(action=ChatAction.TYPING)
-        await _run_claude(
-            claude_lock=context.bot_data.get("claude_lock"),
-            **_slash_command_kwargs(
-                prompt="/clear", settings=settings, session_id=session_id
-            ),
-        )
-
     session["session_id"] = None
     save_session(session_file=settings.session_file, session_id=None)
+    context.bot_data["last_run"] = {}
     await update.message.reply_text("Session cleared.")
 
 
@@ -597,46 +569,57 @@ async def handle_compact_command(
 
     await update.message.chat.send_action(action=ChatAction.TYPING)
 
-    response, new_session_id = await _run_claude(
-        claude_lock=context.bot_data.get("claude_lock"),
-        **_slash_command_kwargs(
-            prompt="/compact", settings=settings, session_id=session_id
-        ),
-    )
-    _persist_session_id(
-        settings=settings, session=session, new_session_id=new_session_id
-    )
-    await _send_response(message=update.message, response=response)
+    # Held for the whole compaction so a message cannot land mid-summarize.
+    async with AsyncExitStack() as stack:
+        lock: asyncio.Lock | None = context.bot_data.get("opencode_lock")
+        if lock is not None:
+            await stack.enter_async_context(lock)
+        message = await compact_session(settings=settings, session_id=session_id)
+
+    await update.message.reply_text(message)
+
+
+def format_context_usage(
+    *, tokens: int | None, cost: float | None, context_limit: int
+) -> str:
+    """Render token usage from the last exchange as a /context reply."""
+    if tokens is None:
+        return "No usage recorded yet — send a message first."
+    percent = tokens / context_limit * 100 if context_limit else 0.0
+    lines = [f"Context: {tokens:,} / {context_limit:,} tokens ({percent:.1f}%)"]
+    if cost is not None:
+        lines.append(f"Last exchange cost: ${cost:.4f}")
+    return "\n".join(lines)
 
 
 @authorized
 async def handle_context_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Handle /context command — show context window usage."""
+    """Handle /context command — show context window usage.
+
+    opencode has no equivalent of ``claude -p /context``, but every run reports
+    token usage in its ``step_finish`` event, so this is answered locally from
+    the last exchange with no subprocess at all.
+    """
     settings: Settings = context.bot_data["settings"]
     session: SessionState = context.bot_data["session"]
 
     if not update.message:
         return
 
-    session_id = session.get("session_id")
-    if not session_id:
+    if not session.get("session_id"):
         await update.message.reply_text("No active session.")
         return
 
-    await update.message.chat.send_action(action=ChatAction.TYPING)
-
-    response, new_session_id = await _run_claude(
-        claude_lock=context.bot_data.get("claude_lock"),
-        **_slash_command_kwargs(
-            prompt="/context", settings=settings, session_id=session_id
-        ),
+    last_run: dict = context.bot_data.get("last_run") or {}
+    await update.message.reply_text(
+        format_context_usage(
+            tokens=last_run.get("tokens"),
+            cost=last_run.get("cost"),
+            context_limit=settings.opencode_context_limit,
+        )
     )
-    _persist_session_id(
-        settings=settings, session=session, new_session_id=new_session_id
-    )
-    await _send_response(message=update.message, response=response)
 
 
 @authorized
@@ -651,8 +634,8 @@ async def handle_help_command(
         "Available commands:\n\n"
         "/help — show available commands\n"
         "/clear — clear session and start fresh\n"
-        "/compact — compact conversation context\n"
-        "/context — show context window usage\n"
+        "/compact — summarize the conversation to free context space\n"
+        "/context — show token usage and cost of the last exchange\n"
         "/timezone <city> — set timezone (fuzzy match)\n"
         "/remember <fact> — store a memory fact\n"
         "/listmemory — list all stored memories\n"
@@ -668,6 +651,6 @@ async def handle_help_command(
         "/replayone <number> — replay a single backlog item\n"
         "/downloadnewmail \u2014 download unseen emails as markdown\n"
         "/deleteallreadmail \u2014 delete all read emails from server\n\n"
-        "Text, photo, and document messages are forwarded to Claude."
+        "Text, photo, and document messages are forwarded to opencode."
     )
     await update.message.reply_text(help_text)

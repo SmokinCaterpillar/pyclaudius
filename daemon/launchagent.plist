@@ -24,7 +24,7 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <!-- UPDATE THIS: Include paths to uv, claude -->
+        <!-- UPDATE THIS: Include paths to uv, opencode -->
         <string>/Users/YOUR_USERNAME/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
         <key>HOME</key>
         <!-- UPDATE THIS -->

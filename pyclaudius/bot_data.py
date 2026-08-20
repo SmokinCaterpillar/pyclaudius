@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from pyclaudius.backlog import BacklogItem
     from pyclaudius.config import Settings
     from pyclaudius.cron.models import ScheduledJob
+    from pyclaudius.opencode import RunInfo
 
 
 class SessionState(TypedDict):
@@ -29,10 +30,11 @@ class BotData(TypedDict):
     backlog: list[BacklogItem]
     cron_jobs: list[ScheduledJob]
     user_timezone: str | None
-    claude_lock: asyncio.Lock
+    opencode_lock: asyncio.Lock
     mcp_server: FastMCP
     mcp_port: int
-    mcp_allowed_tools: list[str]
+    mcp_tool_names: list[str]
+    last_run: RunInfo
     _scheduled_update_ids: set[int]
     scheduler: NotRequired[AsyncIOScheduler]
     mcp_task: NotRequired[asyncio.Task]
