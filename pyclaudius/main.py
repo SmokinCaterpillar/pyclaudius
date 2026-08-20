@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import sys
+from contextlib import suppress
 from datetime import UTC, datetime
 from typing import cast
 
@@ -61,10 +62,25 @@ from pyclaudius.session import load_session
 from pyclaudius.timezone import load_timezone
 from pyclaudius.version import __version__
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
+# Seconds to let the MCP server unwind before giving up on it.
+_MCP_SHUTDOWN_TIMEOUT = 5.0
+
+
+def configure_logging(*, level: int = logging.INFO) -> None:
+    """Configure logging, keeping the bot token out of the logs.
+
+    httpx logs every request URL at INFO, and python-telegram-bot puts the bot
+    token in the URL path — so INFO-level httpx logging writes the token to the
+    journal on every poll.
+    """
+    logging.basicConfig(
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=level,
+    )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+configure_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -112,6 +128,11 @@ async def _post_shutdown(application: Application) -> None:
     mcp_task: asyncio.Task | None = application.bot_data.get("mcp_task")
     if mcp_task is not None:
         mcp_task.cancel()
+        # Awaiting the cancellation gives uvicorn a chance to unwind its own
+        # tasks. Without it the event loop closes first and asyncio complains
+        # that tasks were destroyed while pending.
+        with suppress(asyncio.CancelledError, TimeoutError):
+            await asyncio.wait_for(mcp_task, timeout=_MCP_SHUTDOWN_TIMEOUT)
         logger.info("MCP server shut down")
 
 

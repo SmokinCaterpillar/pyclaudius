@@ -1,11 +1,17 @@
 import logging
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
 from telegram import Update
 
-from pyclaudius.main import _error_handler, _load_settings, _on_mcp_task_done
+from pyclaudius.main import (
+    _error_handler,
+    _load_settings,
+    _on_mcp_task_done,
+    _post_shutdown,
+    configure_logging,
+)
 
 
 @pytest.mark.asyncio
@@ -122,3 +128,55 @@ def test_load_settings_reraises_other_validation_errors(tmp_path, monkeypatch):
     )
     with pytest.raises(ValidationError):
         _load_settings()
+
+
+def test_configure_logging_silences_httpx():
+    """Request URLs are logged by httpx, and the token lives in the URL path."""
+    logging.getLogger("httpx").setLevel(logging.INFO)
+    configure_logging()
+    assert logging.getLogger("httpx").level == logging.WARNING
+
+
+async def test_post_shutdown_awaits_the_mcp_task():
+    """Cancelling without awaiting leaves uvicorn's tasks pending at loop close."""
+    import asyncio
+
+    async def never_ending():
+        await asyncio.sleep(3600)
+
+    task = asyncio.create_task(never_ending())
+    await asyncio.sleep(0)
+    application = MagicMock()
+    application.bot_data = {"mcp_task": task}
+
+    await _post_shutdown(application)
+
+    assert task.done()
+    assert task.cancelled()
+
+
+async def test_post_shutdown_survives_a_stuck_mcp_task():
+    """A server that refuses to unwind must not block the bot's shutdown."""
+    import asyncio
+
+    async def swallows_cancellation():
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            await asyncio.sleep(3600)
+
+    task = asyncio.create_task(swallows_cancellation())
+    await asyncio.sleep(0)
+    application = MagicMock()
+    application.bot_data = {"mcp_task": task}
+
+    with patch("pyclaudius.main.asyncio.wait_for", side_effect=TimeoutError):
+        await _post_shutdown(application)
+
+    task.cancel()
+
+
+async def test_post_shutdown_without_an_mcp_task():
+    application = MagicMock()
+    application.bot_data = {}
+    await _post_shutdown(application)
