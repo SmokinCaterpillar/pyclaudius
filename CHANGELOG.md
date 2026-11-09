@@ -1,3 +1,10 @@
+# [0.12.1]
+
+* BUG-FIX: bot starts after a reboot when TMUX_SESSION is used
+  - new `daemon/pyclaudius-tmux.service` starts the claude session in tmux at boot
+  - `BindPaths` to the tmux socket is optional and uses your real UID
+* BUG-FIX: lock file can no longer block startup after a hard reset (OS file lock instead of PID check)
+
 # [0.12.0]
 
 * Allowing to pin the models and effort

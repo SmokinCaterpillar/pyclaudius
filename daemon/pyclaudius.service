@@ -1,7 +1,9 @@
 [Unit]
 Description=pyclaudius Telegram Bot
-After=network-online.target
-Wants=network-online.target
+# Start after the tmux unit so /tmp/tmux-<UID> exists for BindPaths below.
+# Wants, not Requires: the bot still runs if the tmux unit fails or is absent.
+After=network-online.target pyclaudius-tmux.service
+Wants=network-online.target pyclaudius-tmux.service
 
 [Service]
 Type=simple
@@ -28,8 +30,11 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=/home/YOUR_USERNAME/.pyclaudius-relay /home/YOUR_USERNAME/.claude /home/YOUR_USERNAME/.local/share/claude
-# UPDATE THIS if using TMUX_SESSION: Replace 1000 with your UID (check with 'id -u')
-BindPaths=/tmp/tmux-1000:/tmp/tmux-1000
+# Lets the TMUX_SESSION keepalive reach the tmux socket through PrivateTmp.
+# The leading "-" makes a missing folder non-fatal: /tmp is wiped at boot,
+# and without it the unit fails with 226/NAMESPACE until tmux runs.
+# YOUR_UID: your numeric UID (id -u); the install sed fills it in.
+BindPaths=-/tmp/tmux-YOUR_UID:/tmp/tmux-YOUR_UID
 PrivateTmp=true
 CapabilityBoundingSet=
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
@@ -48,10 +53,12 @@ WantedBy=multi-user.target
 
 # SETUP INSTRUCTIONS:
 #
-# 1. Replace all YOUR_USERNAME with your actual Linux username
+# 1. Install, replacing YOUR_USERNAME with your login name and YOUR_UID
+#    with your UID:
+#    sed -e "s/YOUR_USERNAME/$USER/g" -e "s/YOUR_UID/$(id -u)/g" daemon/pyclaudius.service | sudo tee /etc/systemd/system/pyclaudius.service > /dev/null
 #
-# 2. Copy to systemd:
-#    sudo cp daemon/pyclaudius.service /etc/systemd/system/
+# 2. If you set TMUX_SESSION, also install daemon/pyclaudius-tmux.service
+#    (see the instructions in that file). This unit starts after it.
 #
 # 3. Reload systemd:
 #    sudo systemctl daemon-reload
