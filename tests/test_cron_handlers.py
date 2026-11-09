@@ -266,6 +266,28 @@ async def test_listcron_with_jobs(tmp_path):
     assert "[ONCE]" in reply
 
 
+@pytest.mark.asyncio
+async def test_listcron_splits_long_list(tmp_path):
+    update = _make_update()
+    context = _make_context(tmp_path)
+    context.bot_data["cron_jobs"] = [
+        {
+            "id": f"id{i}",
+            "job_type": "cron",
+            "expression": "*/5 * * * *",
+            "prompt": f"job number {i:04d} " + "x" * 100,
+            "created_at": "2026-01-01T00:00:00",
+        }
+        for i in range(60)
+    ]
+    await handle_listcron_command(update, context)
+    replies = [c[0][0] for c in update.message.reply_text.call_args_list]
+    assert len(replies) > 1
+    assert all(len(r) <= 4096 for r in replies)
+    joined = "\n".join(replies)
+    assert all(f"job number {i:04d}" in joined for i in range(60))
+
+
 # --- handle_testcron_command ---
 
 

@@ -1,6 +1,6 @@
 # [0.12.4]
 
-* BUG-FIX: `/listmemory` and `/listbacklog` split long output into several messages instead of failing with "Message too long"
+* BUG-FIX: `/listmemory`, `/listbacklog` and `/listcron` split long output into several messages instead of failing with "Message too long"
 
 # [0.12.3]
 

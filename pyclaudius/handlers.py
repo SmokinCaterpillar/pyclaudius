@@ -28,7 +28,7 @@ from pyclaudius.prompt import build_prompt
 from pyclaudius.response import has_silent_tag, split_response
 from pyclaudius.session import save_session
 from pyclaudius.timezone import find_timezones, save_timezone
-from pyclaudius.tooling import authorized
+from pyclaudius.tooling import authorized, reply_chunked
 
 logger = logging.getLogger(__name__)
 
@@ -76,16 +76,6 @@ async def _send_response(*, message: object, response: str) -> None:
         await message.reply_text("(empty response from Claude)")
         return
     for chunk in chunks:
-        await message.reply_text(chunk)
-
-
-async def _reply_chunked(*, message: object, text: str) -> None:
-    """Reply with text split to fit Telegram's 4096-character message limit.
-
-    Unlike ``_send_response`` there is no ``[SILENT]`` handling: list
-    commands always return non-empty text.
-    """
-    for chunk in split_response(text=text):
         await message.reply_text(chunk)
 
 
@@ -329,7 +319,7 @@ async def handle_listmemory_command(
         return
 
     result = list_memories(bot_data=cast(BotData, context.bot_data))
-    await _reply_chunked(message=update.message, text=result)
+    await reply_chunked(message=update.message, text=result)
 
 
 @authorized
@@ -446,7 +436,7 @@ async def handle_listbacklog_command(
         return
 
     result = list_backlog(bot_data=cast(BotData, context.bot_data))
-    await _reply_chunked(message=update.message, text=result)
+    await reply_chunked(message=update.message, text=result)
 
 
 @authorized
