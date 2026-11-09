@@ -1,40 +1,74 @@
 import os
+from pathlib import Path
+
+import pytest
 
 from pyclaudius.lockfile import acquire_lock, release_lock
 
 
-def test_acquire_lock_no_existing(tmp_path):
+def test_acquire_lock_no_existing(tmp_path: Path) -> None:
     lock_file = tmp_path / "bot.lock"
-    assert acquire_lock(lock_file=lock_file) is True
-    assert lock_file.exists()
+    handle = acquire_lock(lock_file=lock_file)
+    assert handle is not None
     assert int(lock_file.read_text()) == os.getpid()
+    release_lock(lock_handle=handle)
 
 
-def test_acquire_lock_stale_pid(tmp_path):
+def test_acquire_lock_creates_parent_dir(tmp_path: Path) -> None:
+    lock_file = tmp_path / "relay" / "bot.lock"
+    handle = acquire_lock(lock_file=lock_file)
+    assert handle is not None
+    release_lock(lock_handle=handle)
+
+
+def test_acquire_lock_held_returns_none(tmp_path: Path) -> None:
     lock_file = tmp_path / "bot.lock"
-    lock_file.write_text("99999999")
-    assert acquire_lock(lock_file=lock_file) is True
+    first = acquire_lock(lock_file=lock_file)
+    assert first is not None
+    # flock conflicts across open file descriptions, even within one process.
+    assert acquire_lock(lock_file=lock_file) is None
+    # The failed attempt must not wipe the holder's PID.
+    assert int(lock_file.read_text()) == os.getpid()
+    release_lock(lock_handle=first)
 
 
-def test_acquire_lock_live_pid(tmp_path):
+def test_acquire_lock_after_release(tmp_path: Path) -> None:
     lock_file = tmp_path / "bot.lock"
-    lock_file.write_text(str(os.getpid()))
-    assert acquire_lock(lock_file=lock_file) is False
+    first = acquire_lock(lock_file=lock_file)
+    assert first is not None
+    release_lock(lock_handle=first)
+    second = acquire_lock(lock_file=lock_file)
+    assert second is not None
+    release_lock(lock_handle=second)
 
 
-def test_acquire_lock_invalid_content(tmp_path):
+@pytest.mark.parametrize(
+    "content",
+    [str(os.getpid()), "99999999", "not-a-pid", ""],
+    ids=["live-pid", "dead-pid", "garbage", "empty"],
+)
+def test_acquire_lock_leftover_file(tmp_path: Path, content: str) -> None:
+    # Reboot case: a file left by a dead process never blocks, whatever PID it holds.
     lock_file = tmp_path / "bot.lock"
-    lock_file.write_text("not-a-pid")
-    assert acquire_lock(lock_file=lock_file) is True
+    lock_file.write_text(content)
+    handle = acquire_lock(lock_file=lock_file)
+    assert handle is not None
+    assert int(lock_file.read_text()) == os.getpid()
+    release_lock(lock_handle=handle)
 
 
-def test_release_lock(tmp_path):
+def test_release_lock_keeps_file(tmp_path: Path) -> None:
     lock_file = tmp_path / "bot.lock"
-    lock_file.write_text(str(os.getpid()))
-    release_lock(lock_file=lock_file)
-    assert not lock_file.exists()
+    handle = acquire_lock(lock_file=lock_file)
+    assert handle is not None
+    release_lock(lock_handle=handle)
+    assert lock_file.exists()
+    assert handle.closed
 
 
-def test_release_lock_missing_file(tmp_path):
+def test_release_lock_already_closed(tmp_path: Path) -> None:
     lock_file = tmp_path / "bot.lock"
-    release_lock(lock_file=lock_file)
+    handle = acquire_lock(lock_file=lock_file)
+    assert handle is not None
+    handle.close()
+    release_lock(lock_handle=handle)

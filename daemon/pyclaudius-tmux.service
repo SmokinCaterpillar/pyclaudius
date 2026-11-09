@@ -1,0 +1,47 @@
+[Unit]
+Description=Claude CLI in tmux for the pyclaudius keepalive
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# tmux new-session -d forks a server and the client exits, hence forking.
+Type=forking
+# UPDATE THIS: Your username
+User=YOUR_USERNAME
+# Use the folder you start claude in today. It must already be trusted,
+# or claude's trust dialog swallows the keepalive keys.
+WorkingDirectory=/home/YOUR_USERNAME
+Environment=HOME=/home/YOUR_USERNAME
+Environment=PATH=/home/YOUR_USERNAME/.local/bin:/usr/local/bin:/usr/bin:/bin
+# The session name must equal TMUX_SESSION in .env.
+ExecStart=/usr/bin/tmux new-session -d -s claude claude
+ExecStop=/usr/bin/tmux kill-session -t claude
+# claude exits -> session closes -> tmux server exits -> start it again.
+Restart=always
+RestartSec=10
+# No PrivateTmp: the socket must land in the real /tmp/tmux-<UID>,
+# which pyclaudius.service bind-mounts.
+
+[Install]
+WantedBy=multi-user.target
+
+# SETUP INSTRUCTIONS:
+#
+# Only needed if you set TMUX_SESSION. Install it together with
+# pyclaudius.service, which starts after this unit.
+#
+# 1. Stop any tmux server you started by hand (tmux kill-server).
+#    Otherwise this unit joins that server, owns no process and loops.
+#
+# 2. Install (replaces YOUR_USERNAME with your login name):
+#    sed "s/YOUR_USERNAME/$USER/g" daemon/pyclaudius-tmux.service | sudo tee /etc/systemd/system/pyclaudius-tmux.service > /dev/null
+#
+# 3. Reload systemd and enable (start on boot):
+#    sudo systemctl daemon-reload
+#    sudo systemctl enable --now pyclaudius-tmux
+#
+# 4. Check that claude shows its prompt, not a trust or onboarding dialog:
+#    tmux attach -t claude      (detach with Ctrl-b d)
+#
+# Note: any other tmux session you open as this user joins this server
+# and dies when the unit stops or restarts.

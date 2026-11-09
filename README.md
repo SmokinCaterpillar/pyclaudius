@@ -275,9 +275,11 @@ Set the tmux session name:
 TMUX_SESSION=claude
 ```
 
-When configured, an APScheduler job runs every 5 hours 10 minutes and executes `tmux send-keys -t <session> "hello" Enter`. This requires `tmux` to be installed and the named session to exist.
+When configured, an APScheduler job runs every 5 hours 10 minutes. It sends `/clear` and then `Hello from pyclaudius` to the session with `tmux send-keys`. This requires `tmux` to be installed and the named session to exist.
 
-**systemd note:** The service unit uses `PrivateTmp=true`, which isolates `/tmp`. To let the keepalive reach your tmux socket, the unit includes a `BindPaths=` directive that bind-mounts `/tmp/tmux-<UID>`. The default UID is `1000`; if yours differs, update the value in `daemon/pyclaudius.service` (check with `id -u`).
+The keepalive cannot stop the `claude auth login` login itself from expiring. Claude warns 3 days ahead; after that, requests fail with `Login expired` until you log in again.
+
+**systemd:** [`daemon/pyclaudius-tmux.service`](daemon/pyclaudius-tmux.service) starts the claude session in tmux at boot and starts it again when claude exits. `pyclaudius.service` starts after it. The bot unit uses `PrivateTmp=true`, which isolates `/tmp`, so it bind-mounts `/tmp/tmux-<UID>` to reach the tmux socket. The install command below fills in your UID. The `-` in `BindPaths=-...` lets the bot start even when that folder is missing. `/tmp` is wiped at boot, so the folder does not exist until tmux runs. In that case only the keepalive fails, and it logs a warning.
 
 ## Deploying on a server (Hetzner, etc.)
 
@@ -333,16 +335,27 @@ Ready-to-use service files are in the [`daemon/`](daemon/) directory.
 
 **Linux (systemd):**
 
-Install the service (automatically replaces `YOUR_USERNAME` with your login name):
+Install the service. The command fills in `YOUR_USERNAME` with your login name and `YOUR_UID` with your UID:
 
 ```bash
-sed "s/YOUR_USERNAME/$USER/g" ~/pyclaudius/daemon/pyclaudius.service | sudo tee /etc/systemd/system/pyclaudius.service > /dev/null
+sed -e "s/YOUR_USERNAME/$USER/g" -e "s/YOUR_UID/$(id -u)/g" ~/pyclaudius/daemon/pyclaudius.service | sudo tee /etc/systemd/system/pyclaudius.service > /dev/null
 sudo systemctl daemon-reload
-sudo systemctl enable pyclaudius
-sudo systemctl start pyclaudius
+sudo systemctl enable --now pyclaudius
 ```
 
-See the comments in [`daemon/pyclaudius.service`](daemon/pyclaudius.service) for full instructions.
+If you set `TMUX_SESSION`, also install the tmux unit so the claude session comes back after a reboot. First stop any tmux server you started by hand (`tmux kill-server`). Otherwise the unit joins that server, owns no process and restarts in a loop. The session name in the unit is `claude`; it must equal `TMUX_SESSION`.
+
+```bash
+sed "s/YOUR_USERNAME/$USER/g" ~/pyclaudius/daemon/pyclaudius-tmux.service | sudo tee /etc/systemd/system/pyclaudius-tmux.service > /dev/null
+sudo systemctl daemon-reload
+sudo systemctl enable --now pyclaudius-tmux
+sudo systemctl restart pyclaudius
+tmux attach -t claude   # check that claude shows its prompt, not a trust dialog; detach with Ctrl-b d
+```
+
+Any other tmux session you open as this user joins the unit's tmux server and dies when the unit stops or restarts.
+
+See the comments in [`daemon/pyclaudius.service`](daemon/pyclaudius.service) and [`daemon/pyclaudius-tmux.service`](daemon/pyclaudius-tmux.service) for full instructions.
 
 **macOS (launchd):**
 

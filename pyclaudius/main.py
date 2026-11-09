@@ -52,7 +52,7 @@ from pyclaudius.handlers import (
     handle_timezone_command,
 )
 from pyclaudius.keepalive import send_tmux_keepalive
-from pyclaudius.lockfile import acquire_lock, release_lock, setup_signal_handlers
+from pyclaudius.lockfile import acquire_lock, release_lock
 from pyclaudius.mcp_tools.config import (
     find_free_port,
     register_mcp_server,
@@ -151,11 +151,11 @@ def main() -> None:
     logger.info(f"Started pyclaudius {__version__} with {settings!s}")
     ensure_dirs(settings=settings)
 
-    if not acquire_lock(lock_file=settings.lock_file):
-        logger.error("Another instance is running")
+    # No signal handlers needed: the OS drops the lock on any exit, and
+    # run_polling handles SIGINT/SIGTERM itself.
+    lock_handle = acquire_lock(lock_file=settings.lock_file)
+    if lock_handle is None:
         sys.exit(1)
-
-    setup_signal_handlers(lock_file=settings.lock_file)
 
     app = (
         ApplicationBuilder()
@@ -293,7 +293,7 @@ def main() -> None:
     try:
         app.run_polling()
     finally:
-        release_lock(lock_file=settings.lock_file)
+        release_lock(lock_handle=lock_handle)
 
 
 if __name__ == "__main__":
