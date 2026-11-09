@@ -1,3 +1,10 @@
+# [0.12.2]
+
+* BUG-FIX: tmux keepalive no longer quits claude in the folder trust dialog
+  - the keepalive reads the screen first and logs an error instead of pressing Enter
+  - `daemon/pyclaudius-tmux.service` runs claude in `~/claude-keepalive`, a folder you trust once
+  - `ExecStop` no longer fails when the tmux server is already gone
+
 # [0.12.1]
 
 * BUG-FIX: bot starts after a reboot when TMUX_SESSION is used
