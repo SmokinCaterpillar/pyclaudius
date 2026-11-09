@@ -8,14 +8,17 @@ Wants=network-online.target
 Type=forking
 # UPDATE THIS: Your username
 User=YOUR_USERNAME
-# Use the folder you start claude in today. It must already be trusted,
-# or claude's trust dialog swallows the keepalive keys.
-WorkingDirectory=/home/YOUR_USERNAME
+# A dedicated folder you trust once (see setup below). In an untrusted
+# folder claude opens with the trust dialog, whose default "No, exit"
+# makes the keepalive's Enter quit claude.
+WorkingDirectory=/home/YOUR_USERNAME/claude-keepalive
 Environment=HOME=/home/YOUR_USERNAME
 Environment=PATH=/home/YOUR_USERNAME/.local/bin:/usr/local/bin:/usr/bin:/bin
 # The session name must equal TMUX_SESSION in .env.
 ExecStart=/usr/bin/tmux new-session -d -s claude claude
-ExecStop=/usr/bin/tmux kill-session -t claude
+# "-": when the server already died, kill-session fails with
+# "no server running"; that is not a stop failure.
+ExecStop=-/usr/bin/tmux kill-session -t claude
 # claude exits -> session closes -> tmux server exits -> start it again.
 Restart=always
 RestartSec=10
@@ -33,15 +36,24 @@ WantedBy=multi-user.target
 # 1. Stop any tmux server you started by hand (tmux kill-server).
 #    Otherwise this unit joins that server, owns no process and loops.
 #
-# 2. Install (replaces YOUR_USERNAME with your login name):
+# 2. Create the folder claude runs in:
+#    mkdir -p ~/claude-keepalive
+#
+# 3. Install (replaces YOUR_USERNAME with your login name):
 #    sed "s/YOUR_USERNAME/$USER/g" daemon/pyclaudius-tmux.service | sudo tee /etc/systemd/system/pyclaudius-tmux.service > /dev/null
 #
-# 3. Reload systemd and enable (start on boot):
+# 4. Reload systemd and enable (start on boot):
 #    sudo systemctl daemon-reload
 #    sudo systemctl enable --now pyclaudius-tmux
 #
-# 4. Check that claude shows its prompt, not a trust or onboarding dialog:
-#    tmux attach -t claude      (detach with Ctrl-b d)
+# 5. Trust the folder once. On the first start claude shows the trust
+#    dialog; choose "Yes, I trust this folder", then detach with Ctrl-b d:
+#    tmux attach -t claude
+#    Check: after sudo systemctl restart pyclaudius-tmux, claude must show
+#    its prompt, not the dialog.
+#
+# Use only one tmux unit for this session. If you already have your own
+# (e.g. tmux-claude.service), disable it: two units fight over the session.
 #
 # Note: any other tmux session you open as this user joins this server
 # and dies when the unit stops or restarts.

@@ -277,6 +277,8 @@ TMUX_SESSION=claude
 
 When configured, an APScheduler job runs every 5 hours 10 minutes. It sends `/clear` and then `Hello from pyclaudius` to the session with `tmux send-keys`. This requires `tmux` to be installed and the named session to exist.
 
+Before sending, the keepalive reads the screen with `tmux capture-pane`. If claude shows its folder trust dialog, it sends nothing and logs an error. In that dialog the default choice is `No, exit`, so the keepalive's Enter would quit claude. Fix it by trusting the folder once: `tmux attach -t claude`, choose `Yes, I trust this folder`, detach with `Ctrl-b d`.
+
 The keepalive cannot stop the `claude auth login` login itself from expiring. Claude warns 3 days ahead; after that, requests fail with `Login expired` until you log in again.
 
 **systemd:** [`daemon/pyclaudius-tmux.service`](daemon/pyclaudius-tmux.service) starts the claude session in tmux at boot and starts it again when claude exits. `pyclaudius.service` starts after it. The bot unit uses `PrivateTmp=true`, which isolates `/tmp`, so it bind-mounts `/tmp/tmux-<UID>` to reach the tmux socket. The install command below fills in your UID. The `-` in `BindPaths=-...` lets the bot start even when that folder is missing. `/tmp` is wiped at boot, so the folder does not exist until tmux runs. In that case only the keepalive fails, and it logs a warning.
@@ -343,14 +345,16 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now pyclaudius
 ```
 
-If you set `TMUX_SESSION`, also install the tmux unit so the claude session comes back after a reboot. First stop any tmux server you started by hand (`tmux kill-server`). Otherwise the unit joins that server, owns no process and restarts in a loop. The session name in the unit is `claude`; it must equal `TMUX_SESSION`.
+If you set `TMUX_SESSION`, also install the tmux unit so the claude session comes back after a reboot. First stop any tmux server you started by hand (`tmux kill-server`). Otherwise the unit joins that server, owns no process and restarts in a loop. If you already have your own tmux unit for this session, disable it: use only one, or the two fight over the session. The session name in the unit is `claude`; it must equal `TMUX_SESSION`.
 
 ```bash
+mkdir -p ~/claude-keepalive     # claude runs here; a folder you trust once
 sed "s/YOUR_USERNAME/$USER/g" ~/pyclaudius/daemon/pyclaudius-tmux.service | sudo tee /etc/systemd/system/pyclaudius-tmux.service > /dev/null
 sudo systemctl daemon-reload
 sudo systemctl enable --now pyclaudius-tmux
-sudo systemctl restart pyclaudius
-tmux attach -t claude   # check that claude shows its prompt, not a trust dialog; detach with Ctrl-b d
+tmux attach -t claude           # choose "Yes, I trust this folder"; detach with Ctrl-b d
+sudo systemctl restart pyclaudius-tmux pyclaudius
+tmux capture-pane -p -t claude  # must show claude's prompt, not the trust dialog
 ```
 
 Any other tmux session you open as this user joins the unit's tmux server and dies when the unit stops or restarts.
