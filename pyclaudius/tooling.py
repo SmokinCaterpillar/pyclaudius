@@ -2,8 +2,10 @@ import logging
 from collections.abc import Awaitable, Callable
 from functools import wraps
 
-from telegram import Update
+from telegram import Message, Update
 from telegram.ext import ContextTypes
+
+from pyclaudius.response import split_response
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +13,16 @@ logger = logging.getLogger(__name__)
 def check_authorized(user_id: int, *, allowed_user_id: str) -> bool:
     """Check if a Telegram user ID is authorized."""
     return str(user_id) == allowed_user_id
+
+
+async def reply_chunked(*, message: Message, text: str) -> None:
+    """Reply with text split to fit Telegram's 4096-character message limit.
+
+    Unlike ``_send_response`` there is no ``[SILENT]`` handling: list
+    commands always return non-empty text.
+    """
+    for chunk in split_response(text=text):
+        await message.reply_text(chunk)
 
 
 def authorized(

@@ -294,6 +294,20 @@ async def test_handle_listmemory_command_lists_facts(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_handle_listmemory_command_splits_long_list(tmp_path):
+    update = _make_update()
+    context = _make_context(tmp_path, memory_enabled=True)
+    facts = [f"fact number {i:04d}" for i in range(500)]
+    context.bot_data["memory"] = facts
+    await handle_listmemory_command(update, context)
+    replies = [c[0][0] for c in update.message.reply_text.call_args_list]
+    assert len(replies) > 1
+    assert all(len(r) <= 4096 for r in replies)
+    joined = "\n".join(replies)
+    assert all(fact in joined for fact in facts)
+
+
+@pytest.mark.asyncio
 async def test_handle_listmemory_command_empty(tmp_path):
     update = _make_update()
     context = _make_context(tmp_path, memory_enabled=True)
@@ -586,6 +600,22 @@ async def test_handle_listbacklog_command_with_items(tmp_path):
     reply = update.message.reply_text.call_args[0][0]
     assert "hello world" in reply
     assert "1" in reply
+
+
+@pytest.mark.asyncio
+async def test_handle_listbacklog_command_splits_long_list(tmp_path):
+    update = _make_update()
+    context = _make_context(tmp_path)
+    prompts = [f"prompt number {i:04d} " + "x" * 40 for i in range(300)]
+    context.bot_data["backlog"] = [
+        {"prompt": p, "created_at": "2026-01-01T00:00:00"} for p in prompts
+    ]
+    await handle_listbacklog_command(update, context)
+    replies = [c[0][0] for c in update.message.reply_text.call_args_list]
+    assert len(replies) > 1
+    assert all(len(r) <= 4096 for r in replies)
+    joined = "\n".join(replies)
+    assert all(f"prompt number {i:04d}" in joined for i in range(300))
 
 
 @pytest.mark.asyncio

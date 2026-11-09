@@ -14,7 +14,7 @@ from pyclaudius.operations import (
     remove_cron_job,
     schedule_once,
 )
-from pyclaudius.tooling import authorized
+from pyclaudius.tooling import authorized, reply_chunked
 
 logger = logging.getLogger(__name__)
 
@@ -195,4 +195,4 @@ async def handle_listcron_command(
         return
 
     text = list_cron_jobs(bot_data=cast(BotData, context.bot_data))
-    await update.message.reply_text(text)
+    await reply_chunked(message=update.message, text=text)

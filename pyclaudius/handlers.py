@@ -28,7 +28,7 @@ from pyclaudius.prompt import build_prompt
 from pyclaudius.response import has_silent_tag, split_response
 from pyclaudius.session import save_session
 from pyclaudius.timezone import find_timezones, save_timezone
-from pyclaudius.tooling import authorized
+from pyclaudius.tooling import authorized, reply_chunked
 
 logger = logging.getLogger(__name__)
 
@@ -319,7 +319,7 @@ async def handle_listmemory_command(
         return
 
     result = list_memories(bot_data=cast(BotData, context.bot_data))
-    await update.message.reply_text(result)
+    await reply_chunked(message=update.message, text=result)
 
 
 @authorized
@@ -436,7 +436,7 @@ async def handle_listbacklog_command(
         return
 
     result = list_backlog(bot_data=cast(BotData, context.bot_data))
-    await update.message.reply_text(result)
+    await reply_chunked(message=update.message, text=result)
 
 
 @authorized

@@ -9,6 +9,7 @@ from pyclaudius.tooling import (
     is_empty_response,
     is_session_limit_error,
     is_usage_credits_error,
+    reply_chunked,
 )
 
 
@@ -187,3 +188,31 @@ def test_is_empty_response_matches(text: str):
 )
 def test_is_empty_response_no_match(text: str):
     assert is_empty_response(response=text) is False
+
+
+@pytest.mark.asyncio
+async def test_reply_chunked_short_text_is_one_message():
+    message = MagicMock()
+    message.reply_text = AsyncMock()
+    await reply_chunked(message=message, text="hello")
+    message.reply_text.assert_called_once_with("hello")
+
+
+@pytest.mark.asyncio
+async def test_reply_chunked_splits_long_text():
+    message = MagicMock()
+    message.reply_text = AsyncMock()
+    text = "\n".join(f"line {i:04d}" for i in range(2000))
+    await reply_chunked(message=message, text=text)
+    replies = [c[0][0] for c in message.reply_text.call_args_list]
+    assert len(replies) > 1
+    assert all(len(r) <= 4096 for r in replies)
+    assert "\n".join(replies) == text
+
+
+@pytest.mark.asyncio
+async def test_reply_chunked_empty_text_sends_nothing():
+    message = MagicMock()
+    message.reply_text = AsyncMock()
+    await reply_chunked(message=message, text="")
+    message.reply_text.assert_not_called()
