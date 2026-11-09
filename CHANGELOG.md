@@ -1,3 +1,7 @@
+# [0.12.4]
+
+* BUG-FIX: `/listmemory` and `/listbacklog` split long output into several messages instead of failing with "Message too long"
+
 # [0.12.3]
 
 * BUG-FIX: bot token no longer written to the log (httpx request lines are logged only from WARNING)

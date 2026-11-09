@@ -79,6 +79,16 @@ async def _send_response(*, message: object, response: str) -> None:
         await message.reply_text(chunk)
 
 
+async def _reply_chunked(*, message: object, text: str) -> None:
+    """Reply with text split to fit Telegram's 4096-character message limit.
+
+    Unlike ``_send_response`` there is no ``[SILENT]`` handling: list
+    commands always return non-empty text.
+    """
+    for chunk in split_response(text=text):
+        await message.reply_text(chunk)
+
+
 async def _run_claude(
     *, claude_lock: asyncio.Lock | None, **kwargs: object
 ) -> tuple[str, str | None]:
@@ -319,7 +329,7 @@ async def handle_listmemory_command(
         return
 
     result = list_memories(bot_data=cast(BotData, context.bot_data))
-    await update.message.reply_text(result)
+    await _reply_chunked(message=update.message, text=result)
 
 
 @authorized
@@ -436,7 +446,7 @@ async def handle_listbacklog_command(
         return
 
     result = list_backlog(bot_data=cast(BotData, context.bot_data))
-    await update.message.reply_text(result)
+    await _reply_chunked(message=update.message, text=result)
 
 
 @authorized
