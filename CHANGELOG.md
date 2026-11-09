@@ -1,3 +1,7 @@
+# [0.12.3]
+
+* BUG-FIX: bot token no longer written to the log (httpx request lines are logged only from WARNING)
+
 # [0.12.2]
 
 * BUG-FIX: tmux keepalive no longer quits claude in the folder trust dialog
