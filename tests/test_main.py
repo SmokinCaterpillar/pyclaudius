@@ -66,3 +66,12 @@ def test_on_mcp_task_done_silent_on_cancellation(caplog):
     with caplog.at_level(logging.INFO, logger="pyclaudius.main"):
         _on_mcp_task_done(task)
     assert "cancelled" in caplog.text
+
+
+def test_httpx_logger_hides_request_urls():
+    """Httpx request lines carry the bot token; they must stay below the log level."""
+    import pyclaudius.main  # noqa: F401  (import sets the level)
+
+    # Check the logger's own level, not the effective one: under pytest the
+    # root logger is WARNING anyway, so the effective level passes without the fix.
+    assert logging.getLogger("httpx").level == logging.WARNING
